@@ -13,7 +13,7 @@ If you find it useful, please consider giving us credit or citing our paper.
 
 # Requirements 
 
-**Note that thtis is a partial list. If you find that something is missing or no longer needed, please let us know!*
+**Note that thtis is a partial list. If you find that something is missing or no longer needed, please let us know!**
 
 * numpy
 * scipy

@@ -136,10 +136,8 @@ if __name__ == "__main__":
             if package is not None:
                 include_files.append( (SITE_PACKAGE_DIR + package, package) )
             
-        executables = [cx_Freeze.Executable('texture_selection.py', base=None),
-                       cx_Freeze.Executable('multiscale_extraction.py', base=None),
-                       cx_Freeze.Executable('gpu_device_selection.py', base=None),
-                       cx_Freeze.Executable('compare_clusters.py', base=None)]
+        executables = [cx_Freeze.Executable('multiscale_extraction.py', base=None),
+                       cx_Freeze.Executable('gpu_device_selection.py', base=None)]
         
         main_system_temp = tempfile.mkdtemp();
 
