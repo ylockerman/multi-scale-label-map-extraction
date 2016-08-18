@@ -4,6 +4,7 @@ Created on Mon Jul 07 17:36:35 2014
 
 @author: ydl2
 """
+
 import numpy as np
 
 if __name__ == '__main__':
@@ -1265,20 +1266,20 @@ def pixal_table_to_tree(pixal_table,number_of_base_sp):
         
     return node_table,list(np.unique(replacement_table))
     
-class SLICMultiscaleTileMap(SLIC_gpu.SLICTileMap):
+class HierarchicalSLIC(SLIC_gpu.SLIC):
     """
         A multiscale SLIC tilemap
         
-        The keys are a a pair of thare index and the SLICTileMap key 
+        The keys are a a pair of thare index and the SLIC key 
     """
     
     def __init__(self,image,base_tile_size,max_tile_size=None,m_base=20,
                    m_scale=0,sigma=3,total_runs = 1,max_itters=1000,min_cluster_size=32):
                    
-        if(isinstance(base_tile_size,SLICMultiscaleTileMap)):
+        if(isinstance(base_tile_size,HierarchicalSLIC)):
             other = base_tile_size #cleen up names
             
-            SLIC_gpu.SLICTileMap.__init__(self,image,other)
+            SLIC_gpu.SLIC.__init__(self,image,other)
             self._node_table = other._node_table
             self._root_table = other._root_table
             self._scales_sorted = other._scales_sorted
@@ -1287,7 +1288,7 @@ class SLICMultiscaleTileMap(SLIC_gpu.SLICTileMap):
         else:
             if max_tile_size is None:
                 raise ValueError("Must provide a max tile size")
-            SLIC_gpu.SLICTileMap.__init__(self,image,base_tile_size,m=m_base,
+            SLIC_gpu.SLIC.__init__(self,image,base_tile_size,m=m_base,
                                           total_runs = total_runs,max_itters=max_itters,
                                           min_cluster_size=min_cluster_size)                     
             
@@ -1328,7 +1329,7 @@ class SLICMultiscaleTileMap(SLIC_gpu.SLICTileMap):
         
     def get_single_scale_map(self,scale):
         
-        new_map = SLICMultiscaleTileMap(self._image,self)
+        new_map = HierarchicalSLIC(self._image,self)
  
         
         new_map._all_super_pixals = self._get_nodes_less_then_scale(scale)  
@@ -1360,7 +1361,7 @@ class SLICMultiscaleTileMap(SLIC_gpu.SLICTileMap):
 
             list_to_process += node.children
         
-        new_map = SLICMultiscaleTileMap(self._image,self)
+        new_map = HierarchicalSLIC(self._image,self)
          
         new_map._all_super_pixals = all_super_pixals 
         
@@ -1374,7 +1375,7 @@ class SLICMultiscaleTileMap(SLIC_gpu.SLICTileMap):
         return new_map
                 
         
-    #We use the same keys as SLICTileMap so __getitem__ and __setitem__
+    #We use the same keys as SLIC so __getitem__ and __setitem__
     #with the exeption of the adition of the index
     def _node_to_base_key(self,node):
         all_points = zip(*[ self._key_set[sp] for sp in node.list_of_sp ])
@@ -1385,13 +1386,13 @@ class SLICMultiscaleTileMap(SLIC_gpu.SLICTileMap):
             Return a tile based on the key (which is the row/col)
         """
 
-        return SLIC_gpu.SLICTileMap.__getitem__(self,self._node_to_base_key(key))
+        return SLIC_gpu.SLIC.__getitem__(self,self._node_to_base_key(key))
         
     def __setitem__(self,key,value):
         """
             change the value of a tile based on a key (which is the row/col)
         """     
-        SLIC_gpu.SLICTileMap.__setitem__(self,self._node_to_base_key(key),value)
+        SLIC_gpu.SLIC.__setitem__(self,self._node_to_base_key(key),value)
         
     def __len__(self):
         """
@@ -1451,7 +1452,7 @@ class SLICMultiscaleTileMap(SLIC_gpu.SLICTileMap):
         """
             Returns the location of the tile within the image
         """
-        return SLIC_gpu.SLICTileMap.get_tile_location(self,self._node_to_base_key(key))
+        return SLIC_gpu.SLIC.get_tile_location(self,self._node_to_base_key(key))
         
     def tile_size(self):
         return None 
@@ -1461,10 +1462,10 @@ class SLICMultiscaleTileMap(SLIC_gpu.SLICTileMap):
             Returns a new tile map with the same properyes for
             a diffrent image
         """
-        return SLICMultiscaleTileMap(image,self)
+        return HierarchicalSLIC(image,self)
         
     def display_tile(self,key):
-        return SLIC_gpu.SLICTileMap.display_tile(self,self._node_to_base_key(key))    
+        return SLIC_gpu.SLIC.display_tile(self,self._node_to_base_key(key))    
     
     
     def show_gui(self,image=None):

@@ -13,38 +13,10 @@ import numpy.ma as ma
 import skimage.feature
 import skimage.filters
 import skimage.morphology
-from scipy import ndimage
 from scipy import signal
 
 import joblib
 import matplotlib.pyplot as plt
-
-def apply_as_gray(function,image,out = None):
-    """
-        This function  takes a function that works on gray images, and returns
-        a feature array, and applyes it indipedently to each of the color 
-        chanals, and returns the concatitation of the feature spaces
-    """
-    if(len(image.shape) <= 2):
-        if out is None:
-            return function(image);
-        else:
-            out[:] = function(image)
-            return out
-    else: 
-        colors = image.shape[2];
-        if out is None:
-            out = [];
-            for c in xrange(colors):
-                out.append( function(image[:,:,c]) );
-            return np.concatenate(out)
-        else:
-            spot = 0;
-            for c in xrange(colors):
-                out_temp = function(image[:,:,c])
-                out[spot:spot+out_temp.size] = out_temp
-                out_temp += out_temp.size
-            return out
 
 
 class FeatureSpace(object):
@@ -88,94 +60,7 @@ class FeatureSpace(object):
 def _call_feature_from_tile(obj,tile,out):
     obj.feature_from_tile(tile,out)
     return out
-        
-class TrivialFeatureSpace(FeatureSpace):
-    
-    def __init__(self,compare_size=15):
-        self._compare_size = compare_size
-        self._size_tile = (self._compare_size,self._compare_size)
-    
-    def prepare_image(self,imageinput):
-        return imageinput
-    
-    def feature_size(self,tile_map):
-        first_key = next(tile_map.__iter__())
-        return tile_map[first_key].shape[2]*\
-                    self._compare_size*self._compare_size
-    
-    def feature_from_tile(self,tile,out):
-        from skimage.transform import resize
-        
-        fs = tile.shape[-1]
-        
-        if ma.is_masked(tile):
-            not_masked = np.logical_not(tile.mask[:,:,0])
-            tile_to_use = np.zeros(tile.shape[:2]+(fs+1,),tile.dtype)
-            tile_to_use[not_masked,:fs] = tile[not_masked,:]
-            tile_to_use[not_masked,fs] =1
-        else:
-            tile_to_use = tile
-            
-        tile_resize = resize(tile_to_use,self._size_tile)
-
-        import matplotlib.pyplot as plt
-
-        if ma.is_masked(tile):
-            good_vals = tile_resize[:,:,fs] > 0
-            
-            for indx in xrange(fs):
-                tile_resize[good_vals,indx]/=tile_resize[good_vals,fs]   
-                tile_resize[~good_vals,indx] = 0
-                
-            out[:] = tile_resize[:,:,:fs].ravel()
-        else:   
-            out[:] =  tile_resize.ravel();
-        
-    def get_name(self):
-        return "Trivial Feature Space"     
-        
-class FFTFeatureSpace(TrivialFeatureSpace):
-    def feature_from_tile(self,tile,out):
-        tile_fft = np.abs(np.fft.fft2(tile,axes=(0,1)))
-        super(FFTFeatureSpace,self).feature_from_tile(tile_fft,out)
-
-        
-    def get_name(self):
-        return "FFT Feature Space"   
-        
-class AutocorrelationFeatureSpace(TrivialFeatureSpace):
-    def feature_from_tile(self,tile,out):
-        fft_val = np.fft.fft2(tile,axes=(0,1))
-        auto_corr = np.real(np.fft.ifft2(fft_val*fft_val.conj()))
-        super(AutocorrelationFeatureSpace,self).feature_from_tile(auto_corr,out)
-
-        
-    def get_name(self):
-        return "Autocorrelation Feature Space"           
-        
-
-class OldFeatureSpace(FeatureSpace):
-    """
-        Create the simple six peace descriptor
-    """
-    
-    def prepare_image(self,imageinput):
-        return imageinput
-    
-    def feature_size(self,tile_map):
-        first_key = next(tile_map.__iter__())
-        return tile_map[first_key].shape[2]*2
-    
-    def feature_from_tile(self,tile,out):
-        if ma.is_masked(tile):
-            tile = ma.compress(tile)
-        tile = tile.reshape(-1,3)
-        out[:3] = np.mean(tile,axis=0);
-        out[3:] = np.std(tile,axis=0)/2; 
-        
-    def get_name(self):
-        return "Orginal Texture Space"
-
+ 
 class ManyMomentFeatureSpace(FeatureSpace):
     """
         Create the simple six peace descriptor
@@ -218,42 +103,6 @@ class ManyMomentFeatureSpace(FeatureSpace):
     def get_name(self):
         return "%d-moments" % self._moment_count
         
-class HOGFeatureSpace(FeatureSpace):
-    def __init__(self,orientations=4, blocks_per_image=4,
-                                             cells_per_block=(3, 3)):
-        self._orientations = orientations;
-        self._blocks_per_image = blocks_per_image;
-        self._cells_per_block = cells_per_block;
-    
-    def prepare_image(self,imageinput):
-        return imageinput
-    
-
-    def call_hog(self,image):
-        pixels_per_cell = (image.shape[0]/self._blocks_per_image,
-                           image.shape[1]/self._blocks_per_image)
-        return skimage.feature.hog(image,
-                                    self._orientations,
-                                    pixels_per_cell,
-                                    self._cells_per_block,
-                                    normalise=True)
-    
-    def feature_size(self,tile_map):
-        first_key = next(tile_map.__iter__())
-        
-        ##Run it once to get the size 
-        block = apply_as_gray(self.call_hog,tile_map[first_key])
-        return block.size
-    
-    def feature_from_tile(self,tile,out):
-        apply_as_gray(self.call_hog,tile,out)
-
-    def get_name(self):
-        return "HOG Texture Space"
-        
-        
-        
-
     
 class GaborFeatureSpace(FeatureSpace):
     """
@@ -492,9 +341,6 @@ class BinCountFeatureSpace(FeatureSpace):
         return self.bin_count
     
     def feature_from_tile(self,tile,out):
-        import math
-        
-        
         if ma.is_masked(tile):
             tile = tile.compressed()
             

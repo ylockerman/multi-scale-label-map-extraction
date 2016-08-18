@@ -4,14 +4,9 @@ Created on Sun Jan 12 13:01:15 2014
 
 @author: Yitzchak David Lockerman
 """
-
+import collections 
 import numpy as np
 import numpy.ma as ma
-import time
-import math
-
-import scipy
-import scipy.sparse.linalg
 
 
 import skimage.morphology
@@ -28,10 +23,7 @@ cl_array = opencl_tools.cl_array
 elementwise = opencl_tools.cl_elementwise
 reduction = opencl_tools.cl_reduction
 cl_scan = opencl_tools.cl_scan
-from gpu import gpu_sparse_matrix
-from gpu import gpu_matrix_dot
-from gpu import gpu_algorithms
-import tile_map
+
 
 import joblib
 import operator
@@ -843,7 +835,7 @@ def _do_single_calulation(image,number_of_clusters,m,max_itters,min_cluster_size
     return slic_calc.calulate_SLIC(number_of_clusters,m,max_itters,min_cluster_size)
         
 ###A class that takes tiles from a single image
-class SLICTileMap(tile_map.TileMap):
+class SLIC(collections.Mapping):
     def __init__(self,image,tile_size,m=20,total_runs = 1,
                          max_itters=1000,min_cluster_size=32):
         #if we are a grayscale image, convert it a one chanal color
@@ -854,7 +846,7 @@ class SLICTileMap(tile_map.TileMap):
         #tile_size is an istance of this class. Note that we pass the image
         #on its own
         #This is only ment to e called from within the class
-        if(isinstance(tile_size,SLICTileMap)):
+        if(isinstance(tile_size,SLIC)):
             other = tile_size #cleen up names
             
             assert image.shape[:2] == other._cluster_index.shape
@@ -1010,7 +1002,7 @@ class SLICTileMap(tile_map.TileMap):
             Returns a new tile map with the same properyes for
             a diffrent image
         """
-        return SLICTileMap(image,self)
+        return SLIC(image,self)
         
     def get_tile_location(self, key):
         """

@@ -9,13 +9,12 @@ Created on Tue Jul 23 15:20:32 2013
 
 import numpy as np
 
-import scipy
 import scipy.sparse as sparse
-#import scipy.sparse.linalg
+import scipy.sparse.linalg as splinalg
+
 
 import scipy.optimize as spopt
 
-import matplotlib.pyplot as plt
     
 def build_knn_graph_gpu(features,k):
     """
@@ -223,6 +222,18 @@ def do_diffusion(diff_mat,heat_map,steps=1):
         
     return heat_map_new.reshape(heat_map.shape)
     
+def estimate_steps(diff_mat):
+    """
+    Estimate a good number of steps to use for diffusion. The estimate is the 
+    number of steps needed for the first decaying eigenvector to fall to 95% of
+    its original energy, rounded down. 
+    """
+    w,v = splinalg.eigs(diff_mat,min(500,diff_mat.shape[0]-2) )
+    w_sorted = np.real(np.sort(w)[::-1])
     
-     
+    first_good_index = np.nonzero(w_sorted < .9999)[0][0]
+    steps = max(abs(int( np.log(.95*w_sorted[first_good_index])/np.log(w_sorted[first_good_index])  )) ,1)
+  
+    return steps 
+
     

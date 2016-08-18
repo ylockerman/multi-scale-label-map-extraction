@@ -21,6 +21,8 @@ import scipy.optimize
 
 import scipy.optimize
 
+import joblib
+
 from gpu import opencl_tools
 cl = opencl_tools.cl;
 cl_array = opencl_tools.cl_array
@@ -30,33 +32,7 @@ from gpu import gpu_sparse_matrix
 from gpu import gpu_matrix_dot
 from gpu import gpu_algorithms
 
-
-import matplotlib.pyplot as plt
-
-import numexpr
-
 import diffusion_graph
-
-def sparce_matrix_power(D,v,s):
-    result = v.copy();
-
-    
-    for ii in xrange(s):
-        result = D*result;
-    
-    return result;
-
-def random_stocastic(n,m):
-    d = 1
-    
-    mat = np.random.rand(n,m)
-    mat /= np.sum(mat,axis=0)
-    
-    return mat
-
-
-def full_random_samples(matrix,a):
-    full_sam
 
 #code for first kernal: Get F,G from gamma, delta
 _safe_normalization_kernal = """
@@ -89,7 +65,14 @@ _safe_normalization_kernal = """
 """
 
 class SafeNormalizationKernal:
+    """
+    This class runs a GPU kernel that normalizes a dense matrix into a 
+    stochastic matrix. It safely handles the case where a column is all zeros. 
+    We use it to convert gamma and delta to F and G.  
     
+    The size of the normalization vectors must be calculated separately, and 
+    passed as an argument. 
+    """
     def __init__(self,matrix,queue):
         self._queue =  queue
             
@@ -166,7 +149,10 @@ _gradent_fixer = """
         
 """
 class GradentFixer:
-    
+    """
+    This class calculates the gradients of F and G from the gradients of gamma 
+    and delta. 
+    """
     def __init__(self,grade_in,norm,grade_fix,queue):
         self._queue =  queue
             
@@ -248,7 +234,20 @@ _error_kernal_code = """
 """
 
 class ErrorCalulator:
+    """
+    This function calculates the error of a FG segmentation. The value is 
+    relative to the value of |D^s|^2, which is not calculated. 
     
+    The class takes the following parameters: 
+        FT:               The transpose of F
+        G:                The G matrix from the factorisation
+        left_power_T:     The value (D^sG^T)^T
+        right_power:      The value F^TD^s
+        FTG:              The value F^TF
+        GGT:              The value GG^T
+        out:              The matrix to store the output
+        queue:            The GPU queue
+    """
     def __init__(self,FT,G,left_power_T,right_power,FTF,GGT,out,queue):
         self._queue =  queue
         
@@ -305,8 +304,10 @@ class ErrorCalulator:
 
         cl.enqueue_barrier(self._queue)    
         
-#dose a transpose on a matrix by chagning the metadata
 def _gpu_transpose(gpu_mat):
+    """
+    Calulates the transpose of a dense GPU array by changing its metadata. 
+    """
     other_order = gpu_algorithms._get_matrix_order(gpu_mat)
     if(other_order == "C"):
         our_order = "F"
@@ -318,10 +319,56 @@ def _gpu_transpose(gpu_mat):
                           gpu_mat.dtype,
                           our_order,
                           data = gpu_mat.data)
+                          
+#A shorthand to make calculating  the transpose of a gpu matrix                          
 __T = _gpu_transpose
 
-#@profile
-def optimisation_clustering_gradent_decent_probablity_sparce(ctx,diff_mat, r,steps=1, max_itter = 50000,gamma=None,delta=None,cutt_off = 1e-4,display_size=None,**kwargs):
+#Note that steps must be even
+def stochastic_NMF_gradient_descent(ctx,diff_mat, r,steps=1, max_itter = 50000,
+                                    gamma=None,delta=None,cutt_off = 1e-4,**kwargs):
+    """
+    This solves the problem D^s=FG for stochastic matrixes F and G, with sizes 
+    (n,r) and (r,n) respectively. It takes an n by n matrix D, number of 
+    steps s, and rank r as inputs. This method uses a form of gradient descent 
+    to find a locally optimal solution from a starting point gamma and delta. 
+    (It is Algorithm 5 in supplement 2 of Lockerman et. al. 2016)
+    
+    Normally, this function would not be called directly. Instead use 
+    stochastic_NMF or stochastic_NMF_projection.
+    
+    Parameters
+    ----------
+    
+    ctx : cl.Context
+        The GPU context. Can be NULL, in which case get_a_context() from 
+         opencl_tools will be used.
+    diff_mat : {matrix, ndarray,sparse matrix}
+        An n by n matix who’s power will be factorized
+    r : int
+        The rank of the factorization. The outputted F will be of size n by r 
+        and outputted G will be r by n.  
+    steps : int , optional
+        The power of diff_mat to be used for the factorization.
+    max_itter : int , optional
+        The maximum number of descent iterations to use. 
+    gamma : n by r matrix , optional
+        An initial gamma matrix (that is a non-normalized F matrix). If not 
+        provided a random matrix will be used.
+    delta : r by n matrix , optional    
+        An initial delta matrix (that is a non-normalized G matrix). If not 
+        provided a random matrix will be used.  
+    cutt_off : float , optional
+        The change in error at which we stop the decent.
+        
+    Returns
+    -------
+    F : n by r matrix:
+        The first matrix of the factorization
+    G : r by n matrix:
+        The seccond matrix of the factorization   
+    relative_error: float
+        The error relative to |D^s|^2, which is not calculated.
+    """
     diff_mat=diff_mat.astype(np.float32)
     
     if ctx is None:
@@ -346,17 +393,8 @@ def optimisation_clustering_gradent_decent_probablity_sparce(ctx,diff_mat, r,ste
         
         multiple_prod = False
         
-    
-    
     to_release += [diff_mat_gpu,diff_mat_T_gpu]
-    #Begin Temp line
-#    diff_mat = np.asarray(diff_mat.todense())
-#    #our_error = []
-#    #gt_error = []
-    #end Temp
-    
-    
-     
+
     if gamma is None:
         gamma = np.random.uniform(size=(n,r)).astype(np.float32)        
     else:
@@ -478,42 +516,7 @@ def optimisation_clustering_gradent_decent_probablity_sparce(ctx,diff_mat, r,ste
     di = 2000;
     change_target = 5;
     di_decay = .5
-    
-#    #bgin temp code
-#    diff_mat = np.asarray(diff_mat.todense())
-#    last_change_gamma = None
-#    last_change_delta = None
-#    real_change = []
-#    total_change = []
-#    D2R = np.linalg.matrix_power(diff_mat,2*steps)
-#    trDTD = np.linalg.norm(D2R)**2
-#    plt.figure(2)
-#    plt.clf()
-#    
-#    def nn_fix(val):
-#        val=val.copy()
-#        val[val<0] = 0
-#        
-#        return val
-#    def error_value(gamma_cpu,delta_cpu):
-#        gamma_cpu = nn_fix(gamma_cpu)
-#        delta_cpu = nn_fix(delta_cpu)
-#        
-#        norm_gamma_cpu = np.sum(gamma_cpu,axis=0)
-#        norm_delta_cpu = np.sum(delta_cpu,axis=0)
-#        
-#        F_cpu = np.zeros_like(gamma_cpu)
-#        G_cpu = np.zeros_like(delta_cpu)
-#        
-#        good_norm_gamma_cpu = norm_gamma_cpu >0
-#        good_norm_delta_cpu = norm_delta_cpu >0
-#        
-#        F_cpu[:,good_norm_gamma_cpu] = gamma_cpu[:,good_norm_gamma_cpu]/norm_gamma_cpu[good_norm_gamma_cpu]
-#        G_cpu[:,good_norm_delta_cpu] = delta_cpu[:,good_norm_delta_cpu]/norm_delta_cpu[good_norm_delta_cpu]
-#    
-#        DmFG = D2R-np.dot(F_cpu,G_cpu);   
-#        return np.linalg.norm(DmFG)**2
-#    #end temp code
+
     
     #code to calulate F and G from gamma and delta, note that since
     #all calulations is done in place, the infomation travels to outsidet 
@@ -572,11 +575,11 @@ def optimisation_clustering_gradent_decent_probablity_sparce(ctx,diff_mat, r,ste
     else:
         # We compute the matrix power above, no need to do it here
         def calulate_left_power():
-                old_G = G.get(queue_delta_G)
+                G.get(queue_delta_G)
                 diff_mat_gpu.dot(__T(G),left_power)
     
         def calulate_right_power():
-                 right_power_T = diff_mat_T_gpu.dot(F,__T(right_power))     
+                 diff_mat_T_gpu.dot(F,__T(right_power))     
                  
 
         
@@ -588,7 +591,7 @@ def optimisation_clustering_gradent_decent_probablity_sparce(ctx,diff_mat, r,ste
 
         
 
-    t0=time.time()
+    #t0=time.time()
     #precalulate F and G, and the eror
     calulate_F_G(gamma,delta) #precalulate F,G to use for the erorr
     calulate_left_power() #precalulate the left power to use in the error
@@ -668,68 +671,6 @@ def optimisation_clustering_gradent_decent_probablity_sparce(ctx,diff_mat, r,ste
         calulate_right_power();
         new_error = calulate_error_value()
 
-
-##        #Begin temp output
-
-#        
-#        a_values = np.linspace(0,4*di,50)
-#        error_values = np.zeros_like(a_values)
-#        dot_values = np.zeros_like(a_values)
-#        
-#        gamma_cpu = gamma.get(queue_gamma_F)
-#        delta_cpu = delta.get(queue_delta_G)
-#        
-#        gamma_grade_cpu = gamma_grade.get(queue_gamma_F)
-#        delta_grade_cpu = delta_grade.get(queue_delta_G)
-#        
-#        c_error = error_value(gamma_cpu,delta_cpu)
-#        di_error = error_value(gamma_cpu + di*gamma_grade_cpu,
-#                                             delta_cpu + di*delta_grade_cpu)
-#                                             
-#        for ii in xrange(a_values.size):
-#            a = a_values[ii]
-#            error_values[ii] = error_value(gamma_cpu + a*gamma_grade_cpu,
-#                                             delta_cpu + a*delta_grade_cpu)
-#            dot_values[ii] = c_error -2*(np.vdot(gamma_grade_cpu,nn_fix(a*gamma_grade_cpu+gamma_cpu)-gamma_cpu)+
-#                                            np.vdot(delta_grade_cpu,nn_fix(a*delta_grade_cpu+delta_cpu)-delta_cpu))
-#
-#        #polynomial_error_values =c_error- a_values*p0.get()
-#        #print p0
-#        plt.figure(1)
-#        plt.clf();
-#        plt.plot(a_values,error_values)
-#        #plt.plot(a_values,polynomial_error_values,'red')
-#        plt.plot(a_values,dot_values,'red')
-#
-#        dp_gamma = 0
-#        dp_delta = 0
-#        
-#        if last_change_gamma is not None:
-#            dp_gamma = np.vdot(last_change_gamma,gamma_grade_cpu)/(np.linalg.norm(last_change_gamma)*np.linalg.norm(gamma_grade_cpu))
-#            #dp_gamma = np.linalg.norm(nn_fix(gamma_cpu + di*gamma_grade_cpu)-gamma_new.get(queue_gamma_F))
-#            
-#        if last_change_delta is not None:
-#            dp_delta = np.vdot(last_change_delta,delta_grade_cpu)/(np.linalg.norm(last_change_delta)*np.linalg.norm(delta_grade_cpu))
-#            #dp_delta = np.linalg.norm(nn_fix(delta_cpu + di*delta_grade_cpu)-delta_new.get(queue_delta_G))
-#            
-#        last_change_gamma = gamma_grade_cpu
-#        last_change_delta = delta_grade_cpu
-#        
-#        
-#        print c_error-trDTD-current_error,di_error-trDTD-new_error #total_change,c_error-di_error,(current_error-new_error),dp_gamma,dp_delta
-#        plt.plot(di,di_error,'*')
-#        plt.plot(di,c_error-(current_error-new_error),'o')
-#
-#        #plt.xlim(xmin=0)
-#        #plt.ylim((np.min(error_values),c_error))
-#        plt.pause(.02)
-#        
-#        plt.figure(2)
-#        plt.plot(current_error-new_error,c_error - di_error,'o')
-#        plt.pause(.02)
-#        #end temp output   
-        
-        
         delta_error = current_error-new_error
         #Prevent incresing the error, or a blowup
         if(delta_error < 0 or delta_error> change_target):
@@ -751,64 +692,18 @@ def optimisation_clustering_gradent_decent_probablity_sparce(ctx,diff_mat, r,ste
         #if we move less then the cutoff, we can stop
         if(np.abs(delta_error) < cutt_off):
             break;
-         #Begin temp output
-#        if itter%5000==0:
-#            cl.enqueue_barrier(queue).wait()
-#            
-#            gamma_cpu = gamma.get(queue)
-#            delta_cpu = delta.get(queue)
-#            #print np.sum(F,axis=0), np.sum(G,axis=0)
-#            norm_gamma_cpu = np.sum(gamma_cpu,axis=0)
-#            norm_delta_cpu = np.sum(delta_cpu,axis=0)
-#            
-#            F_cpu = gamma_cpu/norm_gamma_cpu
-#            G_cpu = delta_cpu/norm_delta_cpu
-#        
-#            DmFG = diff_mat-np.dot(F_cpu,G_cpu);   
-#            error_val = np.linalg.norm(DmFG)
-#
-#            print itter, error_val, (last_error-error_val)/error_val, total_change , (time.time()-t0)/(itter+1)
-#            last_error = error_val
-#            
-#            if display_size is not None:
-#               
-#                plt.figure(1)
-#                plt.clf()
-#                plt.imshow(np.argmax(G_cpu,axis=0).reshape(display_size))
-#                plt.pause(1)
-#                plt.figure(2)
-#                plt.clf()
-#                plt.imshow(np.argmax(F_cpu,axis=1).reshape(display_size))             
-#                plt.pause(1)
-#            
 
-#       end temp output        
-        
 
         
         itter += 1
-    t1=time.time();
-    
+    #t1=time.time();
 
-    #begin Temp
-#    import scipy.spatial.distance
-#    print "Error corrilation of :",scipy.spatial.distance.correlation(our_error[2:],gt_error[2:])
-#    
-#    import matplotlib.pyplot as plt
-#    plt.plot(our_error,gt_error)
-#    plt.xscale('log')
-#    plt.yscale('log')
-#    plt.show()
-    #end temp
-
-
-    
     F_cpu = F.get(queue_gamma_F)#gamma_cpu/norm_gamma_cpu
     G_cpu = G.get(queue_delta_G)#delta_cpu/norm_delta_cpu
     
   
     #Temp line:
-    print "Total Time: ",t1-t0,"Itters ",itter, "Time per itteration :", (t1-t0)/itter if itter > 0 else 'N/A', "Error value:", current_error
+    #print "Total Time: ",t1-t0,"Itters ",itter, "Time per itteration :", (t1-t0)/itter if itter > 0 else 'N/A', "Error value:", current_error
 
     
     for to_free in to_release:
@@ -817,25 +712,109 @@ def optimisation_clustering_gradent_decent_probablity_sparce(ctx,diff_mat, r,ste
     return F_cpu,G_cpu,current_error
 
 
-def sparce_mat_power(sp,steps,v):
-    v = v.copy();
-    
-    for _ in xrange(steps):
-        v = sp.dot(v);     
+
+
+def nnls(A,b):
+    """
+    Solves Ax=b in a nonnegative least squares sense
+    """
+    if len(b.shape) <= 1:
+        return scipy.optimize.nnls(A,b)[0]
         
-    return v;
+    x = np.zeros((A.shape[1],b.shape[1]))
+    for ii in xrange(b.shape[1]):
+        x[:,ii], _ = scipy.optimize.nnls(A,b[:,ii])
+    return x
     
-def error_term(D,steps,F,G):
-#    return (np.vdot(np.dot(F.T,F),np.dot(G,G.T)) 
-#                - np.vdot(F,D.dot(G.T))
-#                - np.vdot(D.transpose().dot(F).T,G ) )
+def nnls_T(A,b):
+    """
+    Solves xA=b nonnegative least squares sense
+    """
+    if len(b.shape) <= 1:
+        return scipy.optimize.nnls(A.T,b.T)[0].T
+        
+    x = np.zeros((b.shape[0],A.shape[0]))
+    for ii in xrange(b.shape[0]):
+        x[ii,:] = scipy.optimize.nnls(A.T,b[ii,:].T)[0].T
+    return x    
+    
 
-    return (np.vdot(np.dot(F.T,F),np.dot(G,G.T)) 
-                - np.vdot(F,sparce_mat_power(D,steps,G.T))
-                - np.vdot(sparce_mat_power(D.transpose(),steps,F).T,G ) )
+def nnls_F(G,D,sum_targets=None):
+    """
+    Solves D=FG for F given D and G in a nonnegative least squares sense with 
+    the constraint that all will be stochastic.
+    (This is Algorithm 2 from supplement 2 of Lockerman et. al. 2016.)
+    """
+    
+    if G.shape[0] == 0 or D.shape[0]==0:
+        return np.zeros((D.shape[0],G.shape[0]))
+    
+    if sum_targets is None:
+        sum_targets = np.ones(G.shape[0])    
 
-def F_to_G(diff_mat,steps,F):
+    DG2 = np.dot(D,G.T)*2
+    GGT2 = np.dot(G,G.T)*2
+    one = np.ones((D.shape[0],1))
+    multiplyers = np.zeros((G.shape[0],1))
+    
+    val = np.inf
+    
+    while True:
+        F = nnls_T(GGT2,DG2-np.dot(one,multiplyers.T))
+        F *= np.nan_to_num(sum_targets/np.sum(F,axis=0))
+        multiplyers = np.linalg.lstsq(one,DG2-np.dot(F,GGT2))[0].T
 
+        nv = np.linalg.norm(np.dot(F,GGT2)-DG2+np.dot(one,multiplyers.T))
+
+        if((val-nv) < 1e-8):
+            break
+        val = nv
+
+    return F; 
+
+
+def nnls_G(F,D,sum_targets=None):
+    """
+    Solves D=FG for G given D and F in a nonnegative least squares sense with 
+    the constraint that all will be stochastic.
+    (This is Algorithm 3 from supplement 2 of Lockerman et. al. 2016.)
+    """
+    
+    if sum_targets is None:
+        sum_targets = np.ones(D.shape[1])  
+        
+    if F.shape[1] == 0 or D.shape[1]==0:
+        return np.zeros((F.shape[1],D.shape[1]))
+    
+    FTD2 = np.dot(F.T,D)*2
+    FTF2 = np.dot(F.T,F)*2
+    one = np.ones((F.shape[1],1))
+    multiplyers = np.zeros((D.shape[1],1))
+    
+    val = np.inf
+    
+    while True:
+        G = nnls(FTF2,FTD2-np.dot(one,multiplyers.T))
+        G *= np.nan_to_num(sum_targets/np.sum(G,axis=0))
+        multiplyers = np.linalg.lstsq(one,FTD2-np.dot(FTF2,G))[0].T
+
+        nv = np.linalg.norm(np.dot(FTF2,G)-FTD2+np.dot(one,multiplyers.T))
+        
+        if((val-nv) < 1e-8):
+            break
+        val = nv
+        
+    return G 
+    
+    
+
+def nnls_G_power(diff_mat,steps,F):
+    """
+    Solves D^steps=FG for G given D and F in a nonnegative least squares sense 
+    with the constraint that all will be stochastic.
+    
+    (This is Algorithm 3 from supplement 2 of Lockerman et. al. 2016.)
+    """
     if (F.shape[0] == 0 or F.shape[1] == 0 
             or diff_mat.shape[0] == 0 or diff_mat.shape[1] == 0):
                     return np.zeros((F.shape[1],diff_mat.shape[1]))
@@ -866,10 +845,43 @@ def F_to_G(diff_mat,steps,F):
             break
         val = nv
         
-    return G
+    return G 
+    
+    
+def matrix_power(sp,steps,v):
+    """
+    Calulates sp^steps*v
+    """
+    v = v.copy();
+    
+    for _ in xrange(steps):
+        v = sp.dot(v);     
+        
+    return v;
+        
+    
+    
+def error_term(D,steps,F,G):
+    """
+    This function calculates the error of a FG segmentation. The value is 
+    relative to the value of D^s, which is not calculated.
+    
+    Unlike ErrorCalulator, this works on the GPU not CPU
+    """
+    return (np.vdot(np.dot(F.T,F),np.dot(G,G.T)) 
+                - np.vdot(F,matrix_power(D,steps,G.T))
+                - np.vdot(matrix_power(D.transpose(),steps,F).T,G ) )
+
                      
                      
-def precondition_starting_point(diff_mat,steps):#,accept_ratio=1e-1):
+def estimate_single_starting_point(diff_mat,steps):
+        """
+        Attempts to find a good starting point for the gradient descent algorithm. 
+        (This uses Lockerman et. al. 2016 supplement 2 Algorithm 2.)   
+        
+        Normally, this function is not called directly. Instead 
+        estimate_starting_point used to compare multiple starting points. 
+        """
         F = np.zeros((diff_mat.shape[0],0),dtype=np.float32)
         G = np.zeros((0,diff_mat.shape[0]),dtype=np.float32)
         
@@ -882,96 +894,62 @@ def precondition_starting_point(diff_mat,steps):#,accept_ratio=1e-1):
             
             indicator = np.zeros( diff_mat.shape[0],np.float32);
             indicator[chosen] = 1;
-            #indicator = np.random.exponential(1.0,F.shape[0])*unused_points;
 
             for _ in xrange(steps):
                 indicator = diff_mat.dot(indicator);
             indicator = indicator/np.sum(indicator)
             
-            
 
-#            G = F_to_G(diff_mat,steps,F)
-#            new_error = error_term(diff_mat,steps,F,G);
-#            if(new_error>last_eror):
-#                F = F[:,:-1]
-#                G = G[:-1,:]
-#                break;
-#            else:
-#                last_eror = new_error 
-#                all_error_valus.append(new_error);
-                
-            #if(debug_display_vector is not None):
-            #    debug_display_vector(F[:,-1]*diff_mat.shape[0])
-            #    debug_display_vector(G[-1,:]) 
-            #    debug_display_vector(G_tmp[-1,:])
             next_indicator = diff_mat.dot(indicator)
             used_locations = next_indicator < indicator
             
-            #used_locations = indicator >= accept_ratio*np.max(indicator)#1/float(diff_mat.shape[0]);# np.logical_and(indicator >= 1/float(diff_mat.shape[0]),unused_points);
             unused_points[used_locations] = 0;
             unused_points[chosen] = 0;
             
             F = np.hstack( (F, indicator.reshape(-1,1) ) );
-#            plt.subplot(2,2,1)
-#            dv = debug_display_vector(np.log10(indicator));
-#            plt.imshow(dv);plt.colorbar();
-#            
-#            plt.subplot(2,2,2)
-#            dv = debug_display_vector(used_locations);
-#            plt.imshow(dv);plt.colorbar();  
-#            
-#            plt.subplot(2,2,3)
-#            dv = debug_display_vector(unused_points);
-#            plt.imshow(dv);plt.colorbar();          
-#            
-#
-#
-#           
-#           
-#            
-#            q = np.arange(0,100);
-#            qutail = np.percentile(indicator,q.tolist())
-#            
-#            import scipy.stats
-#            slope, intercept, r_value, p_value, std_err =scipy.stats.linregress(q[90:],np.log(qutail[90:]))
-#
-#            
-#            
-#            ax = plt.subplot(2,2,4)
-#            #plt.plot(qutail[:-1],np.diff(qutail)/q[:-1])
-#            plt.plot(q,qutail,'r')
-#            plt.plot(q,np.exp(intercept + slope*q) )
-#            ax.set_yscale('log')
-#            plt.show();
-               
-            #plt.hist(indicator*diff_mat.shape[0],500);
-            #plt.show();
-        G = F_to_G(diff_mat,steps,F)
+
+        G = nnls_G_power(diff_mat,steps,F)
         new_val = error_term(diff_mat,steps,F,G)
         return F,G,new_val
             
-def precondition_starting_point_multiple_runs(diff_mat,steps,precondition_runs,debug_display_vector=None):
+def estimate_starting_point(diff_mat,steps,precondition_runs,
+                                        debug_display_vector=None):
+    """
+     Attempts to find a good starting point for the gradient descent algorithm. 
+     (This uses Lockerman et. al. 2016 supplement 2 Algorithm 1.)   
+     
+    Parameters
+    ----------
+    diff_mat : {matrix, ndarray,sparse matrix}
+        An n by n matix who’s power will be factorized
+    steps : int , optional
+        The power of diff_mat to be used for the factorization.
+    precondition_runs: int
+        The number of times to calculate a starting point, without finding an 
+        improvement, before accepting the best answer. 
+    debug_display_vector: function , optimal 
+        A function that takes F,G, and a title. It is called on every vector 
+        starting point generated. Can be used for debugging to display 
+        starting points.  
+        
+    Returns
+    -------
+    F : n by r matrix:
+        The first matrix of the factorization
+    G : r by n matrix:
+        The seccond matrix of the factorization   
+    relative_error: float
+        The error relative to |D^s|^2, which is not calculated.  
+    """
     best_val = np.inf
     #last_eror = np.inf
 
-    
     time_since_reset = 0;
     
     while time_since_reset < precondition_runs:
         try:
-            #print time_since_reset , precondition_runs , best_val
-            F,G,new_val = precondition_starting_point(diff_mat,steps)
-            #Run for two steps:
-            #print new_val
-            #F,G,new_val = \
-            #  optimisation_clustering_gradent_decent_probablity_sparce(
-            #                 ctx=None,diff_mat=diff_mat,r=int(F.shape[1]),
-            #                 steps=steps,max_itter=5,gamma=F,delta=G,
-            #                 cutt_off=cutt_off)  
-                             
-                             
-            
-            #print(new_val,F.shape[1],time_since_reset)
+            F,G,new_val = estimate_single_starting_point(diff_mat,steps)
+
             if new_val < best_val:
                 print best_val, new_val, F.shape[1]
                 
@@ -983,155 +961,144 @@ def precondition_starting_point_multiple_runs(diff_mat,steps,precondition_runs,d
                 best_G = G;
                 time_since_reset = 0;
                 
-
-
             else:
                 time_since_reset = time_since_reset + 1
-            #plt.plot(all_error_valus)
+
         except Exception,e:
             print "Exception",e
             import traceback
             traceback.print_exc()
             
-    if(debug_display_vector is not None):        
-        plt.show(block=True); 
+    if(debug_display_vector is not None):
+        try:
+            import matplotlib.pyplot as plt        
+            plt.show(block=True); 
+        except:
+            print("Could not display debug output, do you have matplotlib?")
     return best_F,best_G, best_val                      
                      
 #Whcihc one to use by default
-def optimisation_clustering(diff_mat,precondition_runs = 25,
-                            steps=5, max_itter =4000,gamma=None,
-                            delta=None,cutt_off = 1e-16,
+def stochastic_NMF(diff_mat,precondition_runs = 25,
+                            steps=5, max_itter =4000,cutt_off = 1e-16,
                                             debug_display_vector=None):
+    """
+    This solves the problem D^s=FG for stochastic matrixes F and G, with sizes 
+    (n,r) and (r,n) respectively. It takes an n by n matrix, D, and the number 
+    of steps, s, as inputs. This function uses estimate_starting_point to find 
+    a starting point and r. Aftwewords it uses stochastic_NMF_gradient_descent 
+    to find the local minimum.  
+ 
+ 
+    (It is Algorithm 4 in supplement 2 of Lockerman et. al. 2016)
+    
+    Normally, this function would not be called directly. Instead use 
+    stochastic_NMF or stochastic_NMF_projection.
+    
+    Parameters
+    ----------
+    diff_mat : {matrix, ndarray,sparse matrix}
+        An n by n matix who’s power will be factorized
+    precondition_runs: int
+        The number of times to calculate a starting point, without finding an 
+        improvement, before accepting the best answer.         
+    steps : int , optional
+        The power of diff_mat to be used for the factorization.
+    max_itter : int , optional
+        The maximum number of descent iterations to use. 
+    cutt_off : float , optional
+        The change in error at which we stop the decent.  
+    debug_display_vector: function , optimal 
+        A function that takes F,G, and a title. It is called on every vector 
+        starting point generated. Can be used for debugging to display 
+        starting points.  
+        
+    Returns
+    -------
+    F : n by r matrix:
+        The first matrix of the factorization
+    G : r by n matrix:
+        The seccond matrix of the factorization   
+    relative_error: float
+        The error relative to |D^s|^2, which is not calculated.
+    """                       
 
     best_F,best_G, best_val = \
-        precondition_starting_point_multiple_runs(diff_mat,steps,precondition_runs,debug_display_vector=debug_display_vector)
+        estimate_starting_point(diff_mat,steps,precondition_runs,debug_display_vector=debug_display_vector)
     print "result ",(best_val,best_F.shape[1])
     
 
     r  = int(best_F.shape[1]);
-    best_gamma,best_delta,best_error = \
-      optimisation_clustering_gradent_decent_probablity_sparce(
-                     ctx=None,diff_mat=diff_mat,r=r,steps=steps,
-                     max_itter=max_itter,gamma=best_F,delta=best_G,
-                     cutt_off=cutt_off)
-        
-        
-    
+    best_gamma,best_delta,best_error =  stochastic_NMF_gradient_descent(
+                                         ctx=None,diff_mat=diff_mat,r=r,
+                                         steps=steps,max_itter=max_itter,
+                                         gamma=best_F,delta=best_G,
+                                         cutt_off=cutt_off)
+                            
 
-    
-    
     return best_gamma,best_delta,best_error
     
     
 
-    
-def nnls(A,b):
-    if len(b.shape) <= 1:
-        return scipy.optimize.nnls(A,b)[0]
-        
-    x = np.zeros((A.shape[1],b.shape[1]))
-    for ii in xrange(b.shape[1]):
-        x[:,ii], _ = scipy.optimize.nnls(A,b[:,ii])
-    return x
-    
-#Solves xA=b
-def nnls_T(A,b):
-    if len(b.shape) <= 1:
-        return scipy.optimize.nnls(A.T,b.T)[0].T
-        
-    x = np.zeros((b.shape[0],A.shape[0]))
-    for ii in xrange(b.shape[0]):
-        x[ii,:] = scipy.optimize.nnls(A.T,b[ii,:].T)[0].T
-    return x    
-    
-def nnls_F(G,D,sum_targets=None):
-
-    
-    if G.shape[0] == 0 or D.shape[0]==0:
-        return np.zeros((D.shape[0],G.shape[0]))
-    
-    if sum_targets is None:
-        sum_targets = np.ones(G.shape[0])    
-
-    DG2 = np.dot(D,G.T)*2
-    GGT2 = np.dot(G,G.T)*2
-    one = np.ones((D.shape[0],1))
-    multiplyers = np.zeros((G.shape[0],1))
-    
-    val = np.inf
-    
-    while True:
-        F = nnls_T(GGT2,DG2-np.dot(one,multiplyers.T))
-        F *= np.nan_to_num(sum_targets/np.sum(F,axis=0))
-        multiplyers = np.linalg.lstsq(one,DG2-np.dot(F,GGT2))[0].T
-
-        nv = np.linalg.norm(np.dot(F,GGT2)-DG2+np.dot(one,multiplyers.T))
-
-        if((val-nv) < 1e-8):
-            break
-        val = nv
-    
-#    va =  np.linalg.norm(np.dot(F,G)-D)
-#    othr = np.dot(D,np.linalg.pinv(G));
-#    othr[othr < 0] = 0
-#    othr *= sum_targets/np.sum(othr,axis=0)
-#
-#    vb = np.linalg.norm(np.dot(othr,G)-D)
-#    
-#    print np.sum(othr,axis=0)-sum_targets, np.sum(F,axis=0)-sum_targets
-#    if va < vb:
-#        print 'ours better', va, vb
-#    else:
-#        print 'other better', va, vb             
-#    
-#    print '---------------------------->',np.linalg.norm(np.dot(F,G)-D)
-    return F; 
-
-  
-def nnls_G(F,D,sum_targets=None):
-    
-    if sum_targets is None:
-        sum_targets = np.ones(D.shape[1])  
-        
-    if F.shape[1] == 0 or D.shape[1]==0:
-        return np.zeros((F.shape[1],D.shape[1]))
-    
-    FTD2 = np.dot(F.T,D)*2
-    FTF2 = np.dot(F.T,F)*2
-    one = np.ones((F.shape[1],1))
-    multiplyers = np.zeros((D.shape[1],1))
-    
-    val = np.inf
-    
-    while True:
-        G = nnls(FTF2,FTD2-np.dot(one,multiplyers.T))
-        G *= np.nan_to_num(sum_targets/np.sum(G,axis=0))
-        multiplyers = np.linalg.lstsq(one,FTD2-np.dot(FTF2,G))[0].T
-
-        nv = np.linalg.norm(np.dot(FTF2,G)-FTD2+np.dot(one,multiplyers.T))
-        
-        if((val-nv) < 1e-8):
-            break
-        val = nv
-        
-    return G 
-    
-#@profile    
-def optimisation_clustering_projection(diff_mat,projection_runs = 1,
-                            steps=5,r_guess_precondition_runs=1,
+def stochastic_NMF_projection(diff_mat,projection_runs = 1,steps=5,
+                            r_guess_precondition_runs=1,final_correction=True,
                             debug_display_vector=None, **kwargs):
+    """
+    This solves the problem D^s=FG for stochastic matrixes F and G, with sizes 
+    (n,r) and (r,n) respectively. It takes an n by n matrix, D, and the number 
+    of steps, s, as inputs. 
+    
+    If n is larger then 10*3*r (for a value of r estimated through 
+    estimate_starting_point), this method will try to project the structure of 
+    D to a smaller matrix. It will then attempt to solve that simpler problem 
+    and then use it to find the larger factorization. Finally, 
+    stochastic_NMF_gradient_descent is used to find the local minimum 
+    near the solution. 
+ 
+    (It is Algorithm 6 in supplement 2 of Lockerman et. al. 2016)
+    Parameters
+    ----------
+    diff_mat : {matrix, ndarray,sparse matrix}
+        An n by n matix who’s power will be factorized
+    precondition_runs: int
+        The number of times to calculate a starting point, without finding an 
+        improvement, before accepting the best answer.         
+    steps : int , optional
+        The power of diff_mat to be used for the factorization.
+    r_guess_precondition_runs : int , optional
+        This is passed to estimate_starting_point as precondition_runs when 
+        attempting to estimate r. This estimated r is only used to decide when 
+        to use the projection. It is not the final value of r returned. 
+    final_correction bool , optinal
+        If true, this function will use stochastic_NMF_gradient_descent to 
+        attempt to find the local minimum by the projected results. 
+    debug_display_vector: function , optimal 
+        A function that takes F,G, and a title. It is called on every vector 
+        starting point generated. Can be used for debugging to display 
+        starting points.  
+    
+    Additional keyword arguments are accepted. They are passed to 
+    stochastic_NMF. See that function for details. 
+        
+    Returns
+    -------
+    F : n by r matrix:
+        The first matrix of the factorization
+    G : r by n matrix:
+        The seccond matrix of the factorization   
+    relative_error: float
+        The error relative to |D^s|^2, which is not calculated.
+    """
     best_err = np.Inf
 
     n = diff_mat.shape[0]
     if(not sparse.issparse(diff_mat)):
-        #return optimisation_clustering_gradent_decent_probablity(diff_mat, r, max_itter, cutt_off)
         diff_mat = sparse.csr_matrix(diff_mat)
         
 
         
     #Guess a projection count 
     best_F,_, _ = \
-        precondition_starting_point_multiple_runs(diff_mat,steps,r_guess_precondition_runs,
+        estimate_starting_point(diff_mat,steps,r_guess_precondition_runs,
                                                   debug_display_vector=debug_display_vector)
     r_first_guess=best_F.shape[1]
     del best_F
@@ -1139,7 +1106,7 @@ def optimisation_clustering_projection(diff_mat,projection_runs = 1,
     
     if proj_count > n:
         print "not enugh points for prjection, falling back to reguler code"
-        return optimisation_clustering(diff_mat,steps=steps,debug_display_vector=debug_display_vector,**kwargs)
+        return stochastic_NMF(diff_mat,steps=steps,debug_display_vector=debug_display_vector,**kwargs)
     
     
     print "Guessing an r of %d with %d projected points" % (r_first_guess,proj_count)
@@ -1241,7 +1208,7 @@ def optimisation_clustering_projection(diff_mat,projection_runs = 1,
             A_sel /= A_consts
         
             #We have already premultiplyed, so steps is 1
-            F_sel,G_sel,_ = optimisation_clustering(A_sel,steps=1,**kwargs)
+            F_sel,G_sel,_ = stochastic_NMF(A_sel,steps=1,**kwargs)
             
             
             F_proj = np.zeros((n,F_sel.shape[1]))
@@ -1263,19 +1230,121 @@ def optimisation_clustering_projection(diff_mat,projection_runs = 1,
 
     if F_proj_best is None:
         print "Unsable to find a projected matrix", last_exeption
-        return optimisation_clustering(diff_mat,steps=steps,**kwargs)
+        return stochastic_NMF(diff_mat,steps=steps,**kwargs)
+
+    if final_correction:
+        return stochastic_NMF_gradient_descent(None,diff_mat=diff_mat,
+                                               r=F_proj_best.shape[1],steps=steps,
+                                                gamma=F_proj_best,delta=G_proj_best,
+                                                **kwargs)
+    else:
+        return F_proj_best,G_proj_best,err
+            
+            
+            
+def NMF_boosted(diff_mat,main_NMF_algorithum,total_NMF_boost_runs = 6,
+                     boosting_calulation_runs = 5, debug_display_vector=None, **kwargs):
+    """
+    This solves the problem D^s=FG for stochastic matrixes F and G, with sizes 
+    (n,r) and (r,n) respectively. It takes an n by n matrix, D, and the number 
+    of steps, s, as inputs. 
+    
+    This algorithm will run main_NMF_algorithum multiple times and then attempt 
+    to combine the answers to produce a consistent result. 
+    
+ 
+    (It is Algorithm 6 in supplement 8 of Lockerman et. al. 2016)
+    Parameters
+    ----------
+    diff_mat : {matrix, ndarray,sparse matrix}
+        An n by n matix who’s power will be factorized
+    main_NMF_algorithum : function 
+        The clustering algorithm to use. It can be stochastic_NMF or
+        stochastic_NMF_projection
+    total_NMF_boost_runs : int
+        The total number of times to run main_NMF_algorithum
+    boosting_calulation_runs : int    
+        The total number of times to attempt to combine the different results. 
+        The answer with the minimum error is returned. 
+    debug_display_vector: function , optimal 
+        A function that takes F,G, and a title. It is called on every vector 
+        starting point generated. Can be used for debugging to display 
+        starting points.  
+    
+    Additional keyword arguments are accepted. They are passed to 
+    main_NMF_algorithum. 
         
-    #Do a final correction        
-    #return   F_proj_best,G_proj_best,err
-    return optimisation_clustering_gradent_decent_probablity_sparce(None,
-                        diff_mat=diff_mat,r=F_proj_best.shape[1],steps=steps,
-                        gamma=F_proj_best,delta=G_proj_best,**kwargs)
+    Returns
+    -------
+    F : n by r matrix:
+        The first matrix of the factorization
+    G : r by n matrix:
+        The seccond matrix of the factorization   
+    """
+    all_calls = [joblib.delayed(main_NMF_algorithum)
+                    (diff_mat,
+                      debug_display_vector=debug_display_vector,
+                      **kwargs)
+                             for _ in xrange(total_NMF_boost_runs)]
+                            
+    n_jobs = 1 if debug_display_vector is None else 1
+    results = joblib.Parallel(n_jobs=n_jobs,verbose=10)(all_calls)
+        
+    if boosting_calulation_runs > 0:
+        all_Fs,all_Gs,texture_count = zip(* ( (F,G,G.shape[0]) for F,G,error in results ) )
+  
+        all_Fs = diffusion_graph.weight_matrix_to_diffution_matrix(np.hstack(all_Fs))   
+        all_Gs = diffusion_graph.weight_matrix_to_diffution_matrix(np.vstack(all_Gs))
+        
+        simular_map = np.dot(all_Gs,all_Fs)
+
+        G_diff_mat = diffusion_graph.weight_matrix_to_diffution_matrix(simular_map)
+        
+        
+        best_error = np.inf
+        best_F_F = None
+        best_G_G = None
+        
+        for idx in xrange(boosting_calulation_runs):
+            F_F,G_G,error = stochastic_NMF_projection(G_diff_mat,
+                                  steps=2,r_guess_precondition_runs=600,
+                                  precondition_runs=500,
+                                  debug_display_vector=debug_display_vector)
+        
+            if error < best_error:
+                best_error = error
+                best_F_F = F_F
+                best_G_G = G_G
+        
+        
+        F_F = best_F_F
+        G_G = best_G_G
+        
+        F = np.dot(all_Fs,F_F)#projection_matrix.T)
+        G = np.dot(G_G,all_Gs)
+    else:
+        best_error = np.inf
+        best_F = None
+        best_G = None
+        
+        for F,G,error in results:
+            if error < best_error:
+                best_error = error
+                best_F = F
+                best_G = G            
+            F = best_F
+            G = best_G
+    return F,G
+            
+            
+            
             
 def compare_to_random_base(f,diff_mat,steps=5, max_itter =4000,
                            cutt_off = 1e-16,random_runs = 200,
                            debug_display_vector=None,**kwargs):
     """
         Compares the result of a NMF to ones preformed by a random start
+        This function is used for debuging
     """                           
     import joblib
     import operator
@@ -1295,11 +1364,11 @@ def compare_to_random_base(f,diff_mat,steps=5, max_itter =4000,
     for _ in xrange(random_runs):    
         F_rand = np.random.uniform(size=best_F.shape).astype(np.float32)   
         #G_rand = np.random.uniform(size=best_G.shape).astype(np.float32)   #
-        G_rand = F_to_G(diff_mat,steps,F_rand)
+        G_rand = nnls_G_power(diff_mat,steps,F_rand)
         
         all_trys.append(
             joblib.delayed
-                (optimisation_clustering_gradent_decent_probablity_sparce)
+                (stochastic_NMF_gradient_descent)
                         (ctx=None,diff_mat=diff_mat,r=r,steps=steps,
                          max_itter=max_itter,gamma=F_rand,delta=G_rand,
                          cutt_off=cutt_off)
@@ -1350,31 +1419,35 @@ def compare_to_random_base(f,diff_mat,steps=5, max_itter =4000,
     print "adjusted time old (for expectation of better hit):",  t_p,\
                 "bounds:", (t_p_lb,t_p_ub)
 
-    #print( np.sum(error_values<current_error) )
-    #plt.plot(bin_center,hist)
-    plt.figure();
-    #hist, _, _ = plt.hist(error_values,20,normed=True,histtype='step')
-    hist, _, _ = plt.hist(error_values,60,normed=True,histtype='step')
-    #hist, _, _ = plt.hist(error_values_new,20,normed=True,histtype='step',color='red')
-    plt.vlines(best_error,0,np.max(hist))
-    plt.title('Probablity of NMF error')
-    plt.xlabel('Relitive error')
-    
-    
-    
-    if(debug_display_vector is not None):
+    try:
+        import matplotlib.pyplot as plt
+        #print( np.sum(error_values<current_error) )
+        #plt.plot(bin_center,hist)
         plt.figure();
-        out_im = debug_display_vector(np.argmax(best_G,0));
-        plt.imshow(out_im);
-        plt.colorbar();
-        plt.title("new output: %f EC: %f"% (best_error,np.vdot(best_F,best_G.T)) ) 
+        #hist, _, _ = plt.hist(error_values,20,normed=True,histtype='step')
+        hist, _, _ = plt.hist(error_values,60,normed=True,histtype='step')
+        #hist, _, _ = plt.hist(error_values_new,20,normed=True,histtype='step',color='red')
+        plt.vlines(best_error,0,np.max(hist))
+        plt.title('Probablity of NMF error')
+        plt.xlabel('Relitive error')
         
-        for test_F,test_G,test_errro in all_results:
+        
+        
+        if(debug_display_vector is not None):
             plt.figure();
-            debug_display_vector(test_F,test_G, "old output: %f EC: %f"% (test_errro,np.vdot(test_G,test_F.T)));
-
+            out_im = debug_display_vector(np.argmax(best_G,0));
+            plt.imshow(out_im);
+            plt.colorbar();
+            plt.title("new output: %f EC: %f"% (best_error,np.vdot(best_F,best_G.T)) ) 
+            
+            for test_F,test_G,test_errro in all_results:
+                plt.figure();
+                debug_display_vector(test_F,test_G, "old output: %f EC: %f"% (test_errro,np.vdot(test_G,test_F.T)));
     
-    plt.show(block=True);
+        
+        plt.show(block=True);
+    except:
+        print("Could not display output, do you have matplotlib?")
 
     #Pass thrugh result for compatablity 
     return best_F,best_G,best_error
@@ -1383,11 +1456,11 @@ def compare_to_random_base(f,diff_mat,steps=5, max_itter =4000,
     
     
 
-    
+
 if __name__ == '__main__':
-        n = 5000
+        n = 3000
         r = 10
-        steps = 2;
+        steps = 8;
         
         def make_random(n,r):
             wight_values = np.random.normal(2*r,1,size=(n,))
@@ -1413,16 +1486,18 @@ if __name__ == '__main__':
             
             return F,G
 
-        our_time_list = []       
+        simple_time_list = []       
         time_list = []
         time_list_corrected = []
+        time_list_corrected_boosted = []
         
-        our_error_list = []
+        simple_error_list = []
         error_list = []
         error_list_corrected = []
+        error_list_corrected_boosted = []
         gt_error = []
         
-        n_values = np.linspace(40*r,n,10,dtype=np.int32)
+        n_values = np.linspace(40*r,n,6,dtype=np.int32)
         
         for n in n_values:
             print "------------------------->",n
@@ -1440,30 +1515,22 @@ if __name__ == '__main__':
             
             #Simple run
             t0 =time.time()
-            F_calc,G_calc,_ =  optimisation_clustering(D,steps=steps)
+            F_calc,G_calc,_ =  stochastic_NMF(D,steps=steps)
             t1 =time.time()   
                 
-                
-
-                
-            #our_time = t1-t0
-            #our_error = error(D,F_calc,G_calc)
-                
-    
-            #Using projection
             
-            our_time_list.append(t1-t0)
-            our_error_list.append(error(D_pow,F_calc,G_calc))
+            simple_time_list.append(t1-t0)
+            simple_error_list.append(error(D_pow,F_calc,G_calc))
             
             t2 =time.time()
-            F_proj_best,G_proj_best,_=optimisation_clustering_projection(D,steps=steps)
+            F_proj_best,G_proj_best,_=stochastic_NMF_projection(D,steps=steps,final_correction=False)
             t3 =time.time()
             time_list.append(t3-t2)
             error_list.append(error(D_pow,F_proj_best, G_proj_best))
             
     
     
-            F_corr, G_corr,_ = optimisation_clustering_gradent_decent_probablity_sparce(
+            F_corr, G_corr,_ = stochastic_NMF_gradient_descent(
                                  ctx=None,diff_mat=D,r=F_proj_best.shape[1],steps=steps,
                                  max_itter=4000,gamma=F_proj_best,delta=G_proj_best,
                                  cutt_off=1e-16)
@@ -1472,53 +1539,54 @@ if __name__ == '__main__':
             time_list_corrected.append(t4-t2)
             error_list_corrected.append(error(D_pow,F_corr, G_corr))
             
-            
-    #        F_ran, G_ran,_ = optimisation_clustering_gradent_decent_probablity_sparce(
-    #                             ctx=None,diff_mat=D,r=F_proj.shape[1],steps=steps,
-    #                             max_itter=4000,
-    #                             cutt_off=1e-16)        
-    #        
-    #        t5 =time.time()
-        
-        
-        #Show out put
-        plt.figure()
-        plt.plot(n_values,time_list,label='Projected')
-        plt.plot(n_values,time_list_corrected,label='Corrected')
-        plt.plot(n_values,our_time_list,'--',label='our') 
-        plt.xlabel('n',fontsize='x-large')
-        plt.ylabel('Time (s)',fontsize='x-large')
-        plt.legend()
-        
-        plt.figure()
-        plt.plot(n_values,error_list,label='Projected')
-        plt.plot(n_values,error_list_corrected,label='Corrected') 
-        plt.plot(n_values,our_error_list,'--',label='our') 
-        if steps==1: #gt error is only meeningful when steps are 1
-            plt.plot(n_values,gt_error,'-',label='ground_truth')
-        
-        plt.xlabel('n',fontsize='x-large')
-        plt.ylabel('Error',fontsize='x-large')        
-        plt.legend()
-        
-        plt.figure()
-        plt.plot(time_list,error_list,'o',label='Projected')  
-        plt.plot(time_list_corrected,error_list_corrected,'o',label='Corrected') 
-        plt.plot(our_time_list,our_error_list,'*',label='our')          
-        plt.xlabel('Time (s)',fontsize='x-large')
-        plt.ylabel('Error',fontsize='x-large') 
-        plt.legend()
+            t5 =time.time()
+            F_boo, G_boo =  NMF_boosted(D_pow,stochastic_NMF_projection,steps=steps)
+            #F_boo, G_boo,_ = stochastic_NMF_gradient_descent(
+            #                     ctx=None,diff_mat=D,r=F_boo.shape[1],steps=steps,
+            #                     max_itter=4000,gamma=F_boo,delta=G_boo,
+            #                     cutt_off=1e-16)
+            t6 =time.time()
+            time_list_corrected_boosted.append(t4-t2)
+            error_list_corrected_boosted.append(error(D_pow,F_boo, G_boo))
 
-          
-        plt.show()          
-#        print r
-#        print "our                  ",error(D,F_calc,G_calc),  "\t", (t1-t0),"s\t r of" ,  F_calc.shape[1];
-#        print "projected            ",error(D,F_proj,G_proj),  "\t", (t3-t2),"s\t r of" , F_proj.shape[1];
-#        print "projected - corrected",error(D,F_corr, G_corr), "\t", (t4-t2),"s\t r of" ,  F_corr.shape[1];    
-##        print "random               ",error(D,F_ran, G_ran),   "\t", (t5-t4),"s\t r of" ,  F_ran.shape[1];
-#        
-#        #As a base line, do a random sample
-#        F_test,G_test = make_random()
-#        print "gigo",error(D,F_test,G_test);
-#        print "exact",error(D,F,G);
-#        #print np.dot(G,F)
+
+        
+        #Show output
+        try:
+            import matplotlib.pyplot as plt
+            
+            plt.figure()
+            plt.plot(n_values,time_list,label='Projected')
+            plt.plot(n_values,time_list_corrected,label='Corrected')
+            plt.plot(n_values,time_list_corrected_boosted,label='Corrected Boosted')            
+            plt.plot(n_values,simple_time_list,'--',label='simple') 
+            plt.xlabel('n',fontsize='x-large')
+            plt.ylabel('Time (s)',fontsize='x-large')
+            plt.legend()
+            
+            plt.figure()
+            plt.plot(n_values,error_list,label='Projected')
+            plt.plot(n_values,error_list_corrected,label='Corrected') 
+            plt.plot(n_values,error_list_corrected_boosted,label='Corrected Boosted') 
+            plt.plot(n_values,simple_error_list,'--',label='Simple') 
+            if steps==1: #gt error is only meeningful when steps are 1
+                plt.plot(n_values,gt_error,'-',label='ground_truth')
+            
+            plt.xlabel('n',fontsize='x-large')
+            plt.ylabel('Error',fontsize='x-large')        
+            plt.legend()
+            
+            plt.figure()
+            plt.plot(time_list,error_list,'o',label='Projected')  
+            plt.plot(time_list_corrected,error_list_corrected,'o',label='Corrected') 
+            plt.plot(time_list_corrected_boosted,error_list_corrected_boosted,label='Corrected Boosted')             
+            plt.plot(simple_time_list,simple_error_list,'*',label='Simple')          
+            plt.xlabel('Time (s)',fontsize='x-large')
+            plt.ylabel('Error',fontsize='x-large') 
+            plt.legend()
+    
+              
+            plt.show()          
+        except:
+            print("Unable to show gui. Do you have matplotlib?")
+            raise

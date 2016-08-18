@@ -64,12 +64,11 @@ import scipy.sparse.linalg as splinalg
 
 import scipy.io
 
-import diffution_system.tile_map
 import diffution_system.feature_space
-import diffution_system.clustering_gpu as clustering
+import diffution_system.stochastic_NMF_gpu as NMF
 from diffution_system import diffusion_graph
 import diffution_system.SLIC_gpu
-import diffution_system.SLIC_multiscale
+import diffution_system.hierarchical_SLIC
 
 
 from gpu import opencl_tools
@@ -97,7 +96,7 @@ import time
 
 #A number of defualt values
 constants = {
-    'SLIC_multiscale' : { 'm_base' : 20, 
+    'hierarchical_SLIC' : { 'm_base' : 20, 
                           'm_scale' : 1,
                           'total_runs' : 10,
                           'max_itters' : 1000,
@@ -108,7 +107,7 @@ constants = {
                             'smothing_factor' : "intrinsic dimensionality",
                             'norm_type' : 'local'
                             },
-    'optimisation_clustering' : {
+    'stochastic_NMF' : {
                             'precondition_runs' : 55,
                             'max_itter' : 40000,
                             'cutt_off' : 1e-20,
@@ -119,35 +118,36 @@ constants = {
     
 }
 
+#an argument type that can handel a percent 
+class PercentArgument(object):
+    
+    def __init__(self,val):
+        val = val.strip()
+        
+        if val[-1] == '%':
+            self._is_relitive = True
+            val = val[:-1]
+        else:
+            self._is_relitive = False
+            
+        try:
+            self.val = float(val)
+        except:
+            import argparse
+            raise argparse.ArgumentTypeError("%r is not a number, or a percent" % val)
+            
+    
+    def __call__(self,rel_value):
+        if self._is_relitive:
+            return self.val/100.0 * rel_value
+        else:
+            return self.val
 
 
 def prase_arguments():
     import argparse
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
-    #an argument type that can handel a percent 
-    class PercentArgument(object):
-        
-        def __init__(self,val):
-            val = val.strip()
-            
-            if val[-1] == '%':
-                self._is_relitive = True
-                val = val[:-1]
-            else:
-                self._is_relitive = False
-                
-            try:
-                self.val = float(val)
-            except:
-                raise argparse.ArgumentTypeError("%r is not a number, or a percent" % val)
-                
-        
-        def __call__(self,rel_value):
-            if self._is_relitive:
-                return self.val/100.0 * rel_value
-            else:
-                return self.val
 
         
     parser.add_argument('input_image', nargs='?', type=str,   
@@ -184,25 +184,25 @@ def prase_arguments():
     intermediate_levels.add_argument('--auto-scale', action='store_true',
                                         help="Automaticly select scales",default=True)                                                    
                                         
-    SLIC_multiscale_args = parser.add_argument_group('SLIC Multiscale',"Parameters for the multiscale SLIC algorithm")
-    SLIC_multiscale_args.add_argument('--m_base',type=float,
+    hierarchical_SLIC_args = parser.add_argument_group('SLIC Multiscale',"Parameters for the multiscale SLIC algorithm")
+    hierarchical_SLIC_args.add_argument('--m_base',type=float,
                                         help="The m value to use for the initial SLIC",
-                                        default=constants['SLIC_multiscale']['m_base'])
-    SLIC_multiscale_args.add_argument('--m_scale',type=float,
+                                        default=constants['hierarchical_SLIC']['m_base'])
+    hierarchical_SLIC_args.add_argument('--m_scale',type=float,
                                         help="The m value to use for the merging step",
-                                        default=constants['SLIC_multiscale']['m_scale'])        
-    SLIC_multiscale_args.add_argument('--total_runs',type=int,
+                                        default=constants['hierarchical_SLIC']['m_scale'])        
+    hierarchical_SLIC_args.add_argument('--total_runs',type=int,
                                         help="The number of times to run the initial SLIC",
-                                        default=constants['SLIC_multiscale']['total_runs'])   
-    SLIC_multiscale_args.add_argument('--SLIC_max_itters',type=int,
+                                        default=constants['hierarchical_SLIC']['total_runs'])   
+    hierarchical_SLIC_args.add_argument('--SLIC_max_itters',type=int,
                                         help="The maximum iterations of the initial SLIC",
-                                        default=constants['SLIC_multiscale']['max_itters']) 
-    SLIC_multiscale_args.add_argument('--min_cluster_size',type=int,
+                                        default=constants['hierarchical_SLIC']['max_itters']) 
+    hierarchical_SLIC_args.add_argument('--min_cluster_size',type=int,
                                         help="The minimum size of a SLIC superpixel. Anything smaller then this size will be greedily merged",
-                                        default=constants['SLIC_multiscale']['min_cluster_size']) 
-    SLIC_multiscale_args.add_argument('--sigma',type=float,
+                                        default=constants['hierarchical_SLIC']['min_cluster_size']) 
+    hierarchical_SLIC_args.add_argument('--sigma',type=float,
                                         help="The smoothing parameter to use for each stop of the multiscale SLIC. Smaller values will produce more acurite results, but will be slower",
-                                        default=constants['SLIC_multiscale']['sigma']) 
+                                        default=constants['hierarchical_SLIC']['sigma']) 
                                          
     
     knn_graph_to_diffution_args = parser.add_argument_group('KNN graph',"Parameters for the knn graph and diffusion matrix")
@@ -245,26 +245,26 @@ def prase_arguments():
                                              help="The angular sensitivity of each filter in radions",
                                              default=2*0.698132)    
    
-    optimisation_clustering_args = parser.add_argument_group('clustering',"Parameters for the NMF clustering")
-    optimisation_clustering_args.add_argument('--precondition_runs',type=int,
+    stochastic_NMF_args = parser.add_argument_group('NMF',"Parameters for the stochastic NMF clustering")
+    stochastic_NMF_args.add_argument('--precondition_runs',type=int,
                                              help="The number of attempts to run the preconditioning algorithms",
-                                             default=constants['optimisation_clustering']['precondition_runs'])  
-    optimisation_clustering_args.add_argument('--steps',type=int,
+                                             default=constants['stochastic_NMF']['precondition_runs'])  
+    stochastic_NMF_args.add_argument('--steps',type=int,
                                              help="The power of the diffusion matrix to use. If not included the amount will be automaticly calulated.",
                                              default=None)     
-    optimisation_clustering_args.add_argument('--NMF_max_itter',type=int,
+    stochastic_NMF_args.add_argument('--NMF_max_itter',type=int,
                                              help="The maximum number of iterations of the gradient descent algorithm",
-                                             default=constants['optimisation_clustering']['max_itter'])                  
-    optimisation_clustering_args.add_argument('--cutt_off',type=float,
+                                             default=constants['stochastic_NMF']['max_itter'])                  
+    stochastic_NMF_args.add_argument('--cutt_off',type=float,
                                              help="The change of error needed to assume convergence",
-                                             default=constants['optimisation_clustering']['cutt_off'])         
-    optimisation_clustering_args.add_argument('--r_guess_precondition_runs',type=int,
+                                             default=constants['stochastic_NMF']['cutt_off'])         
+    stochastic_NMF_args.add_argument('--r_guess_precondition_runs',type=int,
                                              help="The number of full matrix runs used to guess r. Used to decide how many projection points are needed",
-                                             default=constants['optimisation_clustering']['r_guess_precondition_runs'])  
-    optimisation_clustering_args.add_argument('--total_NMF_boost_runs', type=int,
+                                             default=constants['stochastic_NMF']['r_guess_precondition_runs'])  
+    stochastic_NMF_args.add_argument('--total_NMF_boost_runs', type=int,
                                               help="The total number of times to run the NMF code before boosting.",
                                               default=6)                                                    
-    optimisation_clustering_args.add_argument('--boosting_runs', type=int,
+    stochastic_NMF_args.add_argument('--boosting_runs', type=int,
                                               help="The number of times to try boosting (set to zero to disable and just take the best).",
                                               default=5)                                                    
 
@@ -308,20 +308,20 @@ if __name__ == '__main__':
 
     args = prase_arguments()
     
-    constants['SLIC_multiscale']['m_base']            = args.m_base
-    constants['SLIC_multiscale']['m_scale']           = args.m_scale
-    constants['SLIC_multiscale']['total_runs']        = args.total_runs
-    constants['SLIC_multiscale']['max_itters']        = args.SLIC_max_itters
-    constants['SLIC_multiscale']['min_cluster_size']  = args.min_cluster_size    
-    constants['SLIC_multiscale']['sigma']             = args.sigma
+    constants['hierarchical_SLIC']['m_base']            = args.m_base
+    constants['hierarchical_SLIC']['m_scale']           = args.m_scale
+    constants['hierarchical_SLIC']['total_runs']        = args.total_runs
+    constants['hierarchical_SLIC']['max_itters']        = args.SLIC_max_itters
+    constants['hierarchical_SLIC']['min_cluster_size']  = args.min_cluster_size    
+    constants['hierarchical_SLIC']['sigma']             = args.sigma
     
     constants['knn_graph_to_diffution']['smothing_factor'] = args.smothing_factor
     constants['knn_graph_to_diffution']['norm_type']       = args.norm_type  
     
-    constants['optimisation_clustering']['precondition_runs']           = args.precondition_runs       
-    constants['optimisation_clustering']['max_itter']                   = args.NMF_max_itter      
-    constants['optimisation_clustering']['cutt_off']                    = args.cutt_off      
-    constants['optimisation_clustering']['r_guess_precondition_runs']   = args.r_guess_precondition_runs       
+    constants['stochastic_NMF']['precondition_runs']           = args.precondition_runs       
+    constants['stochastic_NMF']['max_itter']                   = args.NMF_max_itter      
+    constants['stochastic_NMF']['cutt_off']                    = args.cutt_off      
+    constants['stochastic_NMF']['r_guess_precondition_runs']   = args.r_guess_precondition_runs       
     
     
     ctx = opencl_tools.get_a_context()
@@ -382,11 +382,11 @@ if __name__ == '__main__':
     max_tile_size = args.max_scale(relitive_value)
     if(tile_size is None):
         import sys;
-        #data_management.print_("User quit without selecting a scale");
+        print("User quit without selecting a scale");
         sys.exit(0);
         
     start_tile_map_time = time.time()
-    tile_map_multi_scale =  diffution_system.SLIC_multiscale.SLICMultiscaleTileMap(image_lab,tile_size,max_tile_size,**constants['SLIC_multiscale'])
+    tile_map_multi_scale =  diffution_system.hierarchical_SLIC.HierarchicalSLIC(image_lab,tile_size,max_tile_size,**constants['hierarchical_SLIC'])
     end_tile_map_time = time.time()    
     
     tile_map_time = end_tile_map_time - start_tile_map_time
@@ -451,10 +451,6 @@ if __name__ == '__main__':
         return debug_display_vector
         
     def create_feature_space(curent_scale):
-        print("--------------------------------------------")
-        print("Using feature space %s" % args.feature_space)
-        print("--------------------------------------------")        
-        
         if args.feature_space == 'histogram_moments':
             return diffution_system.feature_space.ManyMomentFeatureSpace(args.moment_count)
         elif args.feature_space == 'gabor_filters':
@@ -474,16 +470,10 @@ if __name__ == '__main__':
             raise Exception('Unknown feature space %s' % args.feature_space)
             
     def get_steps(diff_mat):
-        
         if args.steps is not None:
             steps = args.steps
         else:
-            w,v = splinalg.eigs(diff_mat,min(500,diff_mat.shape[0]-2) )
-            w_sorted = np.real(np.sort(w)[::-1])
-            
-            first_good_index = np.nonzero(w_sorted < .9999)[0][0]
-            steps = max(abs(int( np.log(.95*w_sorted[first_good_index])/np.log(w_sorted[first_good_index])  )) ,1)
-            print("Steps selected",steps)     
+            steps = diffusion_graph.estimate_steps(diff_mat)    
         return steps
 
                 
@@ -491,7 +481,6 @@ if __name__ == '__main__':
     def get_FG_error(tilemap,curent_scale):
         current_space = create_feature_space(curent_scale)
         discriptor = current_space.create_image_discriptor(tilemap);
-        #data_management.print_("Feature space size of %d" % discriptor.shape[1])
         
 
         
@@ -504,74 +493,28 @@ if __name__ == '__main__':
         if not use_gpu:
             knn_graph =  diffusion_graph.build_knn_graph_ann(discriptor,args.knn)
 
-        
-        #data_management.print_( ("Ann time (0 if not used): %f"+
-        #                         " gpu time (0 if not used): %f") %
-        #                                           (tc-tb,tb-ta) );
-        
-        
+
         diff_mat = diffusion_graph.knn_graph_to_diffution_matrix(knn_graph,
                                              **constants['knn_graph_to_diffution'] )        
+        
         
         steps=get_steps(diff_mat)
         
         debug_display_vector=make_debug_display_vector(tilemap)
-        all_calls = [joblib.delayed(clustering.optimisation_clustering_projection)
-                        (diff_mat,steps=steps,**constants['optimisation_clustering'])
-                            for _ in xrange(args.total_NMF_boost_runs)]
-                                
-        n_jobs = 1 if debug_display_vector is None else 1
-        results = joblib.Parallel(n_jobs=n_jobs,verbose=10)(all_calls)
-            
-        if args.boosting_runs > 0:
-            all_Fs,all_Gs,texture_count = zip(* ( (F,G,G.shape[0]) for F,G,error in results ) )
-      
-            all_Fs = diffusion_graph.weight_matrix_to_diffution_matrix(np.hstack(all_Fs))   
-            all_Gs = diffusion_graph.weight_matrix_to_diffution_matrix(np.vstack(all_Gs))
-            
-            simular_map = np.dot(all_Gs,all_Fs)
-    
-            G_diff_mat = diffusion_graph.weight_matrix_to_diffution_matrix(simular_map)
-            
-            
-            best_error = np.inf
-            best_F_F = None
-            best_G_G = None
-            
-            for idx in xrange(args.boosting_runs):
-                F_F,G_G,error = clustering.optimisation_clustering_projection(G_diff_mat,steps=2,r_guess_precondition_runs=600,precondition_runs=500)
-            
-                if error < best_error:
-                    best_error = error
-                    best_F_F = F_F
-                    best_G_G = G_G
-            
-            
-            F_F = best_F_F
-            G_G = best_G_G
-            
-            F = np.dot(all_Fs,F_F)#projection_matrix.T)
-            G = np.dot(G_G,all_Gs)
-        else:
-            best_error = np.inf
-            best_F = None
-            best_G = None
-            
-            for F,G,error in results:
-                if error < best_error:
-                    best_error = error
-                    best_F = F
-                    best_G = G            
-                F = best_F
-                G = best_G
-        return F,G
+        
+        
+        return NMF.NMF_boosted(diff_mat,NMF.stochastic_NMF_projection,
+                         total_NMF_boost_runs = args.total_NMF_boost_runs,
+                         boosting_calulation_runs = args.boosting_runs, 
+                         debug_display_vector=debug_display_vector, steps=steps,
+                         **constants['stochastic_NMF'])
+
+        
 
         
     def get_n_clusters(tilemap,curent_scale):
         current_space = create_feature_space(curent_scale)
-        discriptor = current_space.create_image_discriptor(tilemap);
-        #data_management.print_("Feature space size of %d" % discriptor.shape[1])
-        
+        discriptor = current_space.create_image_discriptor(tilemap);        
     
         use_gpu = False #discriptor.shape[1] > 15
             
@@ -582,19 +525,14 @@ if __name__ == '__main__':
         if not use_gpu:
             knn_graph =  diffusion_graph.build_knn_graph_ann(discriptor,args.knn)
 
-        
-        #data_management.print_( ("Ann time (0 if not used): %f"+
-        #                         " gpu time (0 if not used): %f") %
-        #                                           (tc-tb,tb-ta) );
         
         
         diff_mat = diffusion_graph.knn_graph_to_diffution_matrix(knn_graph,
                                              **constants['knn_graph_to_diffution'] )        
         best_F,_, _ = \
-            clustering.precondition_starting_point_multiple_runs(diff_mat,
-                                                                 get_steps(diff_mat),
-                                                                 constants['optimisation_clustering']['r_guess_precondition_runs'],
-                                                                 debug_display_vector=make_debug_display_vector(tilemap))
+            NMF.estimate_starting_point(diff_mat,get_steps(diff_mat),
+                                               constants['stochastic_NMF']['r_guess_precondition_runs'],
+                                                           debug_display_vector=make_debug_display_vector(tilemap))
         return best_F.shape[1],  discriptor, diff_mat                         
         
 
@@ -623,33 +561,6 @@ if __name__ == '__main__':
                 raise Exception("Unknown clustering algorithum %s"%args.clustering_algorithum)
         return G_max, n_clusters
 
-    #This is a debug code
-    def get_slic_indicator(tm):
-        if isinstance(tm,np.ndarray):
-            edges_plain = np.zeros_like(image)
-
-            counts = np.bincount(tm.ravel())
-            for c in xrange(image.shape[2]):
-                vals = np.bincount(tm.ravel(),image[:,:,c].ravel())
-                edges_plain[:,:,c] = (vals/counts)[tm]
-                
-            return edges_plain
-        else:
-            indicator = np.zeros(image_lab.shape[:2]+(3,),np.float32)
-            indicator_map = tm.copy_map_for_image(indicator)
-            
-            tm_color = tm.copy_map_for_image(image)        
-            
-            #data_management.add_array('diff_mat',diff_mat) steps,precondition_runs,accept_ratio
-            for loc in xrange(len(tm)):
-                key = tm.key_from_index(loc)
-                im_data = np.reshape(tm_color[key],(-1,3))
-                color = np.mean(im_data,axis=0)
-                
-                for c in xrange(color.shape[0]):
-                    indicator_map[key][:,:,c] = color[c]
-                
-            return indicator
             
     def get_indicator_at_scale(curent_scale):
         texturemap_scale = tile_map_multi_scale.get_single_scale_map(curent_scale)
