@@ -9,7 +9,9 @@ by Lockerman, Y.D., Sauvage, B., Allegre, R., Dischler, J.M., Dorsey, J. and Rus
 
 If you find it useful, please consider giving us credit or citing our paper.   
 
-**Note that documentation is still a work in progress.**
+**Note: This repository is a work in progress. We are currently reorganizing the code, adding importers, and updating the documentation.**
+
+**Feel free to contact us if you have any questions, or need any help making use of this code.**
 
 # Requirements 
 
