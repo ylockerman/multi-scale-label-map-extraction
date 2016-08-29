@@ -28,7 +28,7 @@ cl_scan = opencl_tools.cl_scan
 import joblib
 import operator
  
-import matplotlib.pyplot as plt
+import region_map
 
 
 _SLIC_kernal_code  = """
@@ -834,220 +834,29 @@ def _do_single_calulation(image,number_of_clusters,m,max_itters,min_cluster_size
     slic_calc = SLIC_calulator(image)
     return slic_calc.calulate_SLIC(number_of_clusters,m,max_itters,min_cluster_size)
         
-###A class that takes tiles from a single image
-class SLIC(collections.Mapping):
-    def __init__(self,image,tile_size,m=20,total_runs = 1,
-                         max_itters=1000,min_cluster_size=32):
-        #if we are a grayscale image, convert it a one chanal color
-        if len(image.shape) == 2:
-            image = image[:,:,None]
-
-        #We can also use this as a "copy constructor", this happens when
-        #tile_size is an istance of this class. Note that we pass the image
-        #on its own
-        #This is only ment to e called from within the class
-        if(isinstance(tile_size,SLIC)):
-            other = tile_size #cleen up names
-            
-            assert image.shape[:2] == other._cluster_index.shape
-            
-            self._image = image
-            self._tile_size = other._tile_size
-            
-            self._cluster_index = other._cluster_index
-            self._cluster_value = other._cluster_value
-            self._cluster_locations = other._cluster_locations
-            
-            self._key_set = other._key_set
-        else:
-            self._image = image
-            self._tile_size = tile_size
-            
-            target_number_of_clusters=  (self._image.shape[0]*self._image.shape[1])/tile_size**2
-            print target_number_of_clusters
-            
-            all_trys = \
-                [joblib.delayed(_do_single_calulation)(image,target_number_of_clusters,m,max_itters,min_cluster_size)
-                    for _ in xrange(total_runs)
-                ]
-            
-            all_results = joblib.Parallel(n_jobs=1,verbose=200)(all_trys)
-            print map(operator.itemgetter(0),all_results)
-            
-            _,self._cluster_index,\
-                self._cluster_value,\
-                    self._cluster_locations = \
-                        min(all_results,key=operator.itemgetter(0))
-            
-            print self._cluster_locations.shape[0]
-            
-            #Precompute all the lists
-            table = np.zeros((3,)+self._cluster_index.shape,np.int32 )
-            
-            table[0,:,:], table[1,:,:] = np.meshgrid(
-                                           np.arange(self._cluster_index.shape[0]),
-                                           np.arange(self._cluster_index.shape[1]),
-                                           indexing='ij')
-            table[2,:,:] = self._cluster_index
-            
-            table=np.reshape(table,(3,-1))
-            
-            indexes = np.argsort(table[2,:])
-            table_resort = np.array(table[:,indexes])
-            
-
-            key_set = []
-            
-            _,location_of_ellement = np.unique(table_resort[2,:],True)
-            
-            start = 0 #The fist starting point is in the begining
-            for ii in xrange(self._cluster_locations.shape[0]):
-                if( ii + 1 < self._cluster_locations.shape[0]):
-                    end = location_of_ellement[ii+1]
-                else:
-                    end = table_resort.shape[1]
-                
-                key_set.append((table_resort[0,start:end],table_resort[1,start:end]))
-                start = end #Set the next starting point
-            
-            #self._key_set = [ np.nonzero(self._cluster_index == ii)
-            #                    for ii in 
-            #                        xrange(self._cluster_locations.shape[0])]
-            self._key_set = key_set
-
-
-
         
-    def __getitem__(self,key):
-        """
-            Return a tile based on the key (which is the row/col)
-        """
-        (r_loc,c_loc) = key
-        r_min = np.min(r_loc)
-        r_max = np.max(r_loc)
-        
-        c_min = np.min(c_loc)
-        c_max = np.max(c_loc)          
-        
-        key_offset = (r_loc-r_min,c_loc-c_min)
-        
-        masked_values = np.ones((r_max-r_min+1,
-                                  c_max-c_min+1,
-                                  self._image.shape[2]), dtype=np.bool)
-        masked_values[key_offset] = False
-        image_masked = ma.MaskedArray(
-                        self._image[r_min:(r_max+1),c_min:(c_max+1),:],
-                                        mask=masked_values,hard_mask=True,fill_value=0)
-        return image_masked
-        
-    def __setitem__(self,key,value):
-        """
-            change the value of a tile based on a key (which is the row/col)
-        """
-
-        if(ma.is_masked(value)):
-            (r_loc,c_loc) = key
-            r_min = np.min(r_loc)
-            c_min = np.min(c_loc)
-            key_offset = (r_loc-r_min,c_loc-c_min)            
-            
-            self._image[key] = value[key_offset]
-        elif np.isscalar(value):
-            self._image[key] = value
-        else:
-            self._image[key] = np.reshape(value,(-1,self._image.shape[2]))
-        
-    def __len__(self):
-        """
-            Return the number of tiles, which is deturmand by size
-        """    
-        return self._cluster_locations.shape[0]
-        
-    def __iter__(self):
-        """
-            itterate through all the keys
-        """          
-        return self._key_set.__iter__()
+def SLIC(image,tile_size,m=20,total_runs = 1, max_itters=1000,min_cluster_size=32):     
+    target_number_of_clusters=  (image.shape[0]*image.shape[1])/tile_size**2
+    print target_number_of_clusters
     
-    def get_key_from_image(self,image,location):
-        if image is self._image and \
-            location[0] > 0 and location[0] < image.shape[0] and \
-                    location[1] > 0 and location[1] < image.shape[1]:
-                        
-            return self.key_from_index(self._cluster_index[location])
-            
-        else:
-            raise KeyError("Invalid image point")
-            
-
-    def index_from_key(self,key):
-        """
-            Retrun a index from 0 to len for a key
-        """
-
-        return self._cluster_index[key][0]
+    all_trys = \
+        [joblib.delayed(_do_single_calulation)(image,target_number_of_clusters,m,max_itters,min_cluster_size)
+            for _ in xrange(total_runs)
+        ]
     
-
-    def key_from_index(self,index):
-        """
-            Return key number index
-        """
-        return self._key_set[index]
-        
-    def tile_size(self):
-        return None 
-        
-    def copy_map_for_image(self,image):
-        """
-            Returns a new tile map with the same properyes for
-            a diffrent image
-        """
-        return SLIC(image,self)
-        
-    def get_tile_location(self, key):
-        """
-            Returns the location of the tile within the image
-        """
-        (r_loc,c_loc) = key
-        r_min = np.min(r_loc)
-        c_min = np.min(c_loc)
-        
-        return (r_min,c_min)
-        
-    def get_indicator_array(self):
-        """
-            Nonstandered function, retuerns the array with each cluster
-        """
-        return self._cluster_index
+    all_results = joblib.Parallel(n_jobs=1,verbose=200)(all_trys)
     
-    def get_key_set(self):
-        """
-            Nonstanderd function, returns the keyset
-        """
+    _,cluster_index_cpu,_, _ = min(all_results,key=operator.itemgetter(0))
+    
+    return region_map.AtomicRegionMap(image,cluster_index_cpu)
         
-        return self._key_set
-        
-    def display_tile(self,key):
-        (r_loc,c_loc) = key
-        
-        r_min = np.min(r_loc)
-        r_max = np.max(r_loc)
-        
-        c_min = np.min(c_loc)
-        c_max = np.max(c_loc)  
-        
-        image_out = np.zeros((r_max-r_min+1,
-                                  c_max-c_min+1,
-                                      self._image.shape[2]),
-                                        dtype = self._image.dtype )
-        image_out[r_loc-r_min,c_loc-c_min] = self[key]
-        
-        return image_out
         
 if __name__ == '__main__':
         #From http://stackoverflow.com/questions/3579568/choosing-a-file-in-python-simple-gui
     from Tkinter import Tk
     from tkFileDialog import askopenfilename
+    
+    import matplotlib.pyplot as plt
     
     Tk().withdraw()
     file_name = askopenfilename(filetypes=[('image file','*.jpg *.png *.bmp *.tif')])

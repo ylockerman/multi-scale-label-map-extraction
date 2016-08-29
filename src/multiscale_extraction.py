@@ -59,17 +59,11 @@ site.addsitedir(os.getcwd());
 
 import multiprocessing 
 
-import scipy.sparse.linalg as splinalg
-
-
 import scipy.io
 
-import diffution_system.feature_space
-import diffution_system.stochastic_NMF_gpu as NMF
-from diffution_system import diffusion_graph
-import diffution_system.SLIC_gpu
-import diffution_system.hierarchical_SLIC
-
+from  diffution_system import hierarchical_SLIC
+from diffution_system import label_map
+from diffution_system import region_map
 
 from gpu import opencl_tools
 
@@ -87,14 +81,11 @@ import numpy.ma as ma
 
 from skimage import io, color
 
-
-import sklearn.cluster
-
-import joblib
 import time
 
 
 #A number of defualt values
+#These will be updated from the command arguments
 constants = {
     'hierarchical_SLIC' : { 'm_base' : 20, 
                           'm_scale' : 1,
@@ -107,15 +98,27 @@ constants = {
                             'smothing_factor' : "intrinsic dimensionality",
                             'norm_type' : 'local'
                             },
+    'feature_space' : {
+                          'feature_space_name' : 'histogram_moments',
+                          'moment_count' : 5,
+                          'gabor_octave_count' : 1,
+                          'gabor_octave_jump' : 1,
+                          'gabor_lowest_central_freq': None,
+                          'gabor_lowest_central_freq_ratio': 10,
+                          'gabor_angle_sensitivity': 2*0.698132,
+                          'quadtree_number_of_levels': 3
+                        },
     'stochastic_NMF' : {
                             'precondition_runs' : 55,
                             'max_itter' : 40000,
                             'cutt_off' : 1e-20,
                             'r_guess_precondition_runs' : 2,
+                        },
+    'NMF_boosted' : {
+                            'total_NMF_boost_runs': 6,
+                            'boosting_calulation_runs' : 5
                         }
-                        
-    
-    
+                            
 }
 
 #an argument type that can handel a percent 
@@ -156,11 +159,14 @@ def prase_arguments():
                         help="The location to save the output file")
     
     parser.add_argument('--show_SLIC_gui' ,action="store_true",  
-                        help="Will display a GUI to visualize the Multiscale SLIC before continuing")        
+                        help="Will display a GUI to visualize the Hierarchical SLIC before continuing")        
 
     parser.add_argument('--clustering_algorithum' ,default="kmeans",  
-                        help="The clustering algorithum to use, can be NMF,kmeans, spectral")  
-    
+                        help="The clustering algorithum to use, can be NMF,NMF-boosted, kmeans, spectral")  
+                        
+    parser.add_argument('--show_labels_gui' ,action="store_true",  
+                        help="Will display a GUI to visualize the hierarchical labels before continuing")        
+
     parser.add_argument('--enable_NMF_debug_vector' ,action="store_true",  
                         help="Displaies debug vectors for the NMF based code")  
                         
@@ -217,33 +223,40 @@ def prase_arguments():
                                              default=256)    
     knn_graph_to_diffution_args.add_argument('--feature_space',type=str,
                                              help="which feature space to use. Options are histogram_moments, gabor_filters, and quadtree ",
-                                             default='histogram_moments')                                                  
+                                             default=constants['feature_space']['feature_space_name'])                                                  
                                              
                                              
     histogram_moment_args = parser.add_argument_group('Histogram Moments Features',"Parameters for histagram moment features (must set feature_space to histogram_moments)")
                                              
     histogram_moment_args.add_argument('--moment_count',type=int,
                                              help="The number of moments to use for the metrix",
-                                             default=5)
+                                             default=constants['feature_space']['moment_count'])
                                              
                                              
     gabor_feature_args = parser.add_argument_group('Gabor Filter Features',"Parameters for Gabor Filter features (must set feature_space to gabor_filters)")
                                              
     gabor_feature_args.add_argument('--gabor_octave_count',type=int,
                                              help="The number of octaves for the gabor filter",
-                                             default=1)        
+                                             default=constants['feature_space']['gabor_octave_count'])        
     gabor_feature_args.add_argument('--gabor_octave_jump',type=float,
                                              help="The size of each octave in dB",
-                                             default=1)                                                      
+                                             default=constants['feature_space']['gabor_octave_jump'])                                                      
     gabor_feature_args.add_argument('--gabor_lowest_central_freq',type=float,
-                                             help="The smallest central frequency in cicles per pixel",
-                                             default=None)  
+                                             help="The smallest central frequency in cycles per pixel",
+                                             default=constants['feature_space']['gabor_lowest_central_freq'])  
     gabor_feature_args.add_argument('--gabor_lowest_central_freq_ratio',type=float,
                                              help="The smallest central frequency as proportion to the inverse of the scale. Will be ignored if gabor_lowest_central_freq is set.",
-                                             default=10)                                                                                                      
+                                             default=constants['feature_space']['gabor_lowest_central_freq_ratio'])                                                                                                      
     gabor_feature_args.add_argument('--gabor_angle_sensitivity',type=float,
                                              help="The angular sensitivity of each filter in radions",
-                                             default=2*0.698132)    
+                                             default=constants['feature_space']['gabor_angle_sensitivity'])    
+   
+    quad_tree_args = parser.add_argument_group('Quad Tree Features',"Parameters for Quad Tree features (must set feature_space to quadtree)")
+    quad_tree_args.add_argument('--quadtree_number_of_levels',type=float,
+                                             help="The number of levels in the quad tree",
+                                             default=constants['feature_space']['quadtree_number_of_levels'])                                                      
+
+   
    
     stochastic_NMF_args = parser.add_argument_group('NMF',"Parameters for the stochastic NMF clustering")
     stochastic_NMF_args.add_argument('--precondition_runs',type=int,
@@ -261,12 +274,14 @@ def prase_arguments():
     stochastic_NMF_args.add_argument('--r_guess_precondition_runs',type=int,
                                              help="The number of full matrix runs used to guess r. Used to decide how many projection points are needed",
                                              default=constants['stochastic_NMF']['r_guess_precondition_runs'])  
+                                             
+    stochastic_NMF_args = parser.add_argument_group('NMF Boosted',"Parameters for the Boosted stochastic NMF clustering")                                             
     stochastic_NMF_args.add_argument('--total_NMF_boost_runs', type=int,
                                               help="The total number of times to run the NMF code before boosting.",
-                                              default=6)                                                    
-    stochastic_NMF_args.add_argument('--boosting_runs', type=int,
+                                              default=constants['NMF_boosted']['total_NMF_boost_runs'])                                                    
+    stochastic_NMF_args.add_argument('--boosting_calulation_runs', type=int,
                                               help="The number of times to try boosting (set to zero to disable and just take the best).",
-                                              default=5)                                                    
+                                              default=constants['NMF_boosted']['boosting_calulation_runs'])                                                    
 
     parser.add_argument_group()
     
@@ -318,11 +333,23 @@ if __name__ == '__main__':
     constants['knn_graph_to_diffution']['smothing_factor'] = args.smothing_factor
     constants['knn_graph_to_diffution']['norm_type']       = args.norm_type  
     
+    constants['feature_space']['feature_space_name']              = args.feature_space
+    constants['feature_space']['moment_count']                    = args.moment_count
+    constants['feature_space']['gabor_octave_count']              = args.gabor_octave_count 
+    constants['feature_space']['gabor_octave_jump']               = args.gabor_octave_jump
+    constants['feature_space']['gabor_lowest_central_freq']       = args.gabor_lowest_central_freq
+    constants['feature_space']['gabor_lowest_central_freq_ratio'] = args.gabor_lowest_central_freq_ratio
+    constants['feature_space']['gabor_angle_sensitivity']         = args.gabor_angle_sensitivity
+    constants['feature_space']['quadtree_number_of_levels']       = args.quadtree_number_of_levels
+
+    
     constants['stochastic_NMF']['precondition_runs']           = args.precondition_runs       
     constants['stochastic_NMF']['max_itter']                   = args.NMF_max_itter      
     constants['stochastic_NMF']['cutt_off']                    = args.cutt_off      
-    constants['stochastic_NMF']['r_guess_precondition_runs']   = args.r_guess_precondition_runs       
+    constants['stochastic_NMF']['r_guess_precondition_runs']   = args.r_guess_precondition_runs   
     
+    constants['NMF_boosted']['total_NMF_boost_runs']        = args.total_NMF_boost_runs      
+    constants['NMF_boosted']['boosting_calulation_runs']    = args.boosting_calulation_runs        
     
     ctx = opencl_tools.get_a_context()
 
@@ -386,7 +413,10 @@ if __name__ == '__main__':
         sys.exit(0);
         
     start_tile_map_time = time.time()
-    tile_map_multi_scale =  diffution_system.hierarchical_SLIC.HierarchicalSLIC(image_lab,tile_size,max_tile_size,**constants['hierarchical_SLIC'])
+    tile_map_multi_scale =  hierarchical_SLIC.HierarchicalSLIC(image_lab,
+                                                               tile_size,
+                                                               max_tile_size,
+                                                               **constants['hierarchical_SLIC'])
     end_tile_map_time = time.time()    
     
     tile_map_time = end_tile_map_time - start_tile_map_time
@@ -398,7 +428,7 @@ if __name__ == '__main__':
     tmp_save_file_name = save_file_name
                 
 
-    def make_debug_display_vector(tilemap):
+    def make_debug_display_vector(superpixel_map):
         if not args.enable_NMF_debug_vector:
             return None
         
@@ -406,7 +436,7 @@ if __name__ == '__main__':
 
         def debug_display_vector(F,G,title):
             index_image = np.zeros(image_lab.shape[:2],np.int32)
-            index_image_map = tilemap.copy_map_for_image(index_image) 
+            index_image_map = superpixel_map.copy_map_for_image(index_image) 
             
             
             indicator = np.argmax(G,0)
@@ -433,14 +463,14 @@ if __name__ == '__main__':
                                         
                     indicator = G[index_image[event.ydata,event.xdata],:]
                     
-                    rgb_map = tilemap.copy_map_for_image(image.astype(np.float32))        
+                    rgb_map = superpixel_map.copy_map_for_image(image.astype(np.float32))        
                     
                     out_image = np.zeros(image_lab.shape,np.float32)
-                    out_image_map = tilemap.copy_map_for_image(out_image) 
+                    out_image_map = superpixel_map.copy_map_for_image(out_image) 
                     
                     #nn_av = 0
                     for loc in  xrange(indicator.shape[0]):
-                        key = tilemap.key_from_index(loc)
+                        key = superpixel_map.key_from_index(loc)
                         out_image_map[key] = rgb_map[key]*indicator[loc]
                     
                     show_image_obj.set_data(out_image)
@@ -449,195 +479,20 @@ if __name__ == '__main__':
             
             return click_evnt
         return debug_display_vector
-        
-    def create_feature_space(curent_scale):
-        if args.feature_space == 'histogram_moments':
-            return diffution_system.feature_space.ManyMomentFeatureSpace(args.moment_count)
-        elif args.feature_space == 'gabor_filters':
-            if args.gabor_lowest_central_freq:
-                gabor_lowest_central_freq = args.gabor_lowest_central_freq
-            else:
-                gabor_lowest_central_freq = args.gabor_lowest_central_freq_ratio/curent_scale
-            print("Frequency used",gabor_lowest_central_freq)
-
-            return diffution_system.feature_space.GaborFeatureSpace(octave_count=args.gabor_octave_count,
-                                                                    octave_jump=args.gabor_octave_jump,
-                                                                    lowest_centrail_freq=gabor_lowest_central_freq,
-                                                                    angle_sensitivity=args.gabor_angle_sensitivity)
-        elif args.feature_space == 'quadtree':
-            return diffution_system.feature_space.QuadTreeFeatureSpace()
-        else:
-            raise Exception('Unknown feature space %s' % args.feature_space)
-            
-    def get_steps(diff_mat):
-        if args.steps is not None:
-            steps = args.steps
-        else:
-            steps = diffusion_graph.estimate_steps(diff_mat)    
-        return steps
-
-                
-                
-    def get_FG_error(tilemap,curent_scale):
-        current_space = create_feature_space(curent_scale)
-        discriptor = current_space.create_image_discriptor(tilemap);
-        
-
-        
-        use_gpu = False #discriptor.shape[1] > 15
-            
-        
-        # Do the diffution on the cpu or gpu
-        if use_gpu:
-            knn_graph =  diffusion_graph.build_knn_graph_gpu(discriptor,args.knn)
-        if not use_gpu:
-            knn_graph =  diffusion_graph.build_knn_graph_ann(discriptor,args.knn)
-
-
-        diff_mat = diffusion_graph.knn_graph_to_diffution_matrix(knn_graph,
-                                             **constants['knn_graph_to_diffution'] )        
-        
-        
-        steps=get_steps(diff_mat)
-        
-        debug_display_vector=make_debug_display_vector(tilemap)
-        
-        
-        return NMF.NMF_boosted(diff_mat,NMF.stochastic_NMF_projection,
-                         total_NMF_boost_runs = args.total_NMF_boost_runs,
-                         boosting_calulation_runs = args.boosting_runs, 
-                         debug_display_vector=debug_display_vector, steps=steps,
-                         **constants['stochastic_NMF'])
-
-        
-
-        
-    def get_n_clusters(tilemap,curent_scale):
-        current_space = create_feature_space(curent_scale)
-        discriptor = current_space.create_image_discriptor(tilemap);        
-    
-        use_gpu = False #discriptor.shape[1] > 15
-            
-        
-        # Do the diffution on the cpu or gpu
-        if use_gpu:
-            knn_graph =  diffusion_graph.build_knn_graph_gpu(discriptor,args.knn)
-        if not use_gpu:
-            knn_graph =  diffusion_graph.build_knn_graph_ann(discriptor,args.knn)
-
-        
-        
-        diff_mat = diffusion_graph.knn_graph_to_diffution_matrix(knn_graph,
-                                             **constants['knn_graph_to_diffution'] )        
-        best_F,_, _ = \
-            NMF.estimate_starting_point(diff_mat,get_steps(diff_mat),
-                                               constants['stochastic_NMF']['r_guess_precondition_runs'],
-                                                           debug_display_vector=make_debug_display_vector(tilemap))
-        return best_F.shape[1],  discriptor, diff_mat                         
-        
-
- 
-
-        
-        
-    def do_clustering_at_level(texturemap_at_scale,curent_scale):
-        if args.clustering_algorithum == 'NMF':
-            F,G = get_FG_error(texturemap_at_scale,curent_scale)
-            n_clusters = G.shape[0]
-            G_max = np.argmax(G[:,:],axis = 0)
-        else:
-            n_clusters,discriptor,diff_mat = get_n_clusters(texturemap_at_scale,curent_scale)
-            #means = sklearn.cluster.MiniBatchKMeans(n_clusters=n_clusters,batch_size=max(int(.25*len(texturemap_at_scale)),200),n_init=2000,reassignment_ratio=.2 )
-            
-            if args.clustering_algorithum == 'kmeans':
-                means = sklearn.cluster.KMeans(n_clusters=n_clusters,max_iter=1000,n_init=100,n_jobs=3 )
-                means.fit(discriptor)
-                G_max = means.labels_ 
-            elif args.clustering_algorithum == 'spectral':
-                spectral = sklearn.cluster.SpectralClustering(n_clusters=n_clusters,affinity='precomputed',n_init=100 )
-                spectral.fit(diff_mat)
-                G_max = spectral.labels_ 
-            else:
-                raise Exception("Unknown clustering algorithum %s"%args.clustering_algorithum)
-        return G_max, n_clusters
-
-            
-    def get_indicator_at_scale(curent_scale):
-        texturemap_scale = tile_map_multi_scale.get_single_scale_map(curent_scale)
-        G_max, n_clusters = do_clustering_at_level(texturemap_scale,curent_scale)
-        
-        texture_indicator = np.zeros(image_lab.shape[:2],np.int32)
-        texture_indicator_map = tile_map_multi_scale.copy_map_for_image(texture_indicator)
-
-        for textrue_id in xrange(n_clusters):
-            for idx in np.nonzero(G_max == textrue_id)[0]:
-                texture_indicator_map[texturemap_scale.key_from_index(idx) ] = textrue_id
-            
-        return texture_indicator,texture_indicator_map
-
-        
 
     start_scale_select_time = time.time()
     
-    all_scales =  tile_map_multi_scale.get_scales()  
-    min_scale = min(all_scales)
-    max_scale = max(all_scales)
-    
-    
-    scale_list = []
-    indicator = [] 
-    indicator_lookup_list = []
-    
-    #This is the defualt setting, use it if none is set
-    if (args.number_of_levels is None and args.scale_decay_rate is None):
-        #Auto scale selection
-    
-        current_index = 0
-        while(current_index < len(all_scales) ):   
-            
-            curent_scale = all_scales[current_index]
-            print(curent_scale)
-            scale_list.append(curent_scale)
-            
-            texture_indicator,texture_indicator_map = get_indicator_at_scale(curent_scale)
-            indicator.append(texture_indicator)
-            indicator_lookup_list.append(texture_indicator_map)
 
-            #Use a binery search to find the jump point
-            min_scale_index = current_index+1
-            max_scale_index = len(all_scales) -1
-            
-            has_set = False
-            while min_scale_index + 1 < max_scale_index:
-                mid_scale_index = (max_scale_index+min_scale_index) /2
-                scale_at_mid = all_scales[mid_scale_index]
-                
-                texturemap_at_scale = texture_indicator_map.get_single_scale_map(scale_at_mid)
-                all_num = np.zeros(len(texturemap_at_scale))
-                
-                for tid,super_pixel in enumerate(texturemap_at_scale):
-                    all_num[tid] = len(np.unique(texturemap_at_scale[super_pixel]))
-                    
-                if np.min(all_num) >= 2 and not has_set:
-                    max_scale_index = mid_scale_index
-                else:
-                    min_scale_index = mid_scale_index
-                    
-                
-                if max_scale_index == min_scale_index + 1:
-                    current_index = max_scale_index
-                    has_set = True
-                    
-            if not(has_set):
-                break
+    
+    #If we have a set set of scales record them
+    if (args.number_of_levels is not None or 
+                    args.scale_decay_rate is not None):
+        scale_list = []
+        
+        all_scales =  tile_map_multi_scale.get_scales()  
+        min_scale = min(all_scales)
+        max_scale = max(all_scales)
 
-            
-        scale_list.reverse()
-        indicator.reverse()
-        indicator_lookup_list.reverse()
-        print("Scales selected", scale_list)
-
-    else:
         if args.scale_decay_rate is not None:
             decay_rate = args.scale_decay_rate
             number_of_levels = np.inf;
@@ -654,115 +509,66 @@ if __name__ == '__main__':
         
         if len(scale_list) > number_of_levels:
             scale_list = scale_list[:number_of_levels]
+    else:
+        scale_list = None
         
-    end_scale_select_time  = time.time()
-    scale_select_time = end_scale_select_time - start_scale_select_time
-
         
-
     start_segmintation_time = time.time()
+    build_label_map_prams = {
+      'knn' : args.knn,
+      'steps' : args.steps,
+      'clustering_algorithum'            : args.clustering_algorithum,
+      'r_guess_precondition_runs'        : args.r_guess_precondition_runs,
+      'feature_space_constants'          : constants['feature_space'],
+      'knn_graph_to_diffution_constants' : constants['knn_graph_to_diffution'],
+      'stochastic_NMF_constants'         : constants['stochastic_NMF'],
+      'NMF_boosted_constants'            : constants['NMF_boosted'],
+      'make_debug_display_vector'        : make_debug_display_vector
+    }
+    
+    label_map_dict, aditinal_info_dict =\
+                label_map.build_label_map_stack(tile_map_multi_scale,
+                                  build_label_map_prams=build_label_map_prams)
+                                                         
+    hierarchical_labels = region_map.hierarchical_region_map_from_stack(label_map_dict)
 
-    if len(indicator) == 0: #If we did not cache the indcators for each level, calulate them
-        for scale in scale_list:
-            texture_indicator,texture_indicator_map = get_indicator_at_scale(scale)
-            indicator.append(texture_indicator)
-            indicator_lookup_list.append(texture_indicator_map)
-
-        
-    class TextureTreeNode(object):
-        
-        def __init__(self,keyset,scale):
-            self.children = []
-            self.parent = None
-            self.keyset = keyset
-            self.scale = scale
-        
-
-    #Convert a searese of flat segmentations to the tree
-    def segmentation_to_tree(texturemap,scale_indicator_list):
-        if len(scale_indicator_list) == 0:
-            return []
-            
-        scale,indicator,indicator_map = scale_indicator_list[0]
-        n_clusters = np.max(indicator) + 1
-        texturemap_at_scale = texturemap.get_single_scale_map(scale)
-        
-        all_nodes = []
-        
-        for textrue_id in xrange(n_clusters):
-            keys = [key for key in texturemap_at_scale 
-                            if ma.all(indicator_map[key]==textrue_id) ]
-            print('---->',textrue_id,'/',n_clusters,':',len(keys))
-            if len(keys) > 0:
-                new_node = TextureTreeNode(keys,scale)
-                new_texturemap = texturemap.get_submap(keys)
-                        
-                try:
-                    new_node.children = segmentation_to_tree(new_texturemap,scale_indicator_list[1:])
-                except:
-                    import traceback
-                    traceback.print_exc()
-                    
-                all_nodes.append(new_node)
-        
-        return all_nodes
-
-    texture_tree = segmentation_to_tree(tile_map_multi_scale,zip(scale_list,indicator,indicator_lookup_list))
     end_segmintation_time = time.time()
+
     
     segmintation_time = end_segmintation_time - start_segmintation_time
     
     total_time = end_segmintation_time - start_tile_map_time
-
-    rgb_map = tile_map_multi_scale.copy_map_for_image(image.astype(np.float32)) 
-
-
-    def recusive_build_tree(list_of_nodes):      
-        return [
-                     { 
-                      'scale' : node.scale,
-                      'list_of_base_superpixels' : np.concatenate( [ks.list_of_sp for ks in node.keyset] ),
-                      'children' : recusive_build_tree(node.children)
-                     } for node in list_of_nodes 
-               ]
-                   
+    
+    if args.show_labels_gui:
+        hierarchical_labels.show_gui(image);
+    
     SLIC_raw,HSLIC_raw = tile_map_multi_scale.get_raw_data()
-    texture_tree_raw = recusive_build_tree(texture_tree)
+    _ , texture_tree_raw = hierarchical_labels.get_raw_data()
     
     
 
     
     #Create a raw list of superpixels for each texture on each level
     raw_texture_list = []
-    for scale_id,scale in enumerate(scale_list):
-        local_indicator = indicator[scale_id]
-        indicator_map = indicator_lookup_list[scale_id]
-        texturemap_at_scale = tile_map_multi_scale.get_single_scale_map(scale)
-        
-        n_clusters = np.max(local_indicator) + 1
-
-
-        
+    for scale,label_at_scale in label_map_dict.iteritems():
         texture_makeup_list = [
-                                  np.concatenate(
-                                      [key.list_of_sp 
-                                          for key in texturemap_at_scale 
-                                             if ma.all(indicator_map[key]==texture_id) 
-                                      ] ) for texture_id in xrange(n_clusters)
+                                 label_at_scale.get_atomic_keys(key)
+                                                  for key in label_at_scale
                               ] 
 
-        raw_texture_list.append(                
-                       { 
-                        'scale' : scale,
-                        'list_of_base_superpixels' : texture_makeup_list
-                       }
-                     )
+        scale_texture_data_dict = { 
+                            'scale' : scale,
+                            'list_of_atomic_superpixels' : texture_makeup_list
+                           };
+        scale_texture_data_dict.update(aditinal_info_dict[scale])
+        
+        raw_texture_list.append(scale_texture_data_dict)
     
        
     
     scipy.io.savemat(   save_file_name, 
                         {'image_shape' : image.shape,
-                         'base_SLIC_rle' : output_RLE(SLIC_raw),
+                         'atomic_SLIC_rle' : output_RLE(SLIC_raw),
                          'HSLIC' : HSLIC_raw,
                          'texture_lists' : raw_texture_list,
                          'texture_tree' : texture_tree_raw,

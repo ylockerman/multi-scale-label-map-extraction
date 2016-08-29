@@ -25,7 +25,7 @@ cl_reduction = opencl_tools.cl_reduction
 cl_scan = opencl_tools.cl_scan
 
 import SLIC_gpu
-
+import region_map
 
 _center_calulator_kernal_predefine = """
     //Must define: ROWS, COLS, NUMBER_COLORS,NUMBER_OF_SUPERPIXELS
@@ -1224,381 +1224,55 @@ def calulate_multiscale(image,lowest_level_cluster,
     
     return pixal_table#, image_table
     
-class SLICTreeNode(object):
-    
-    def __init__(self,list_of_sp,scale):
-        self.list_of_sp = list_of_sp
-        self.scale = scale
-        
-        self.children = []
-        
-        self.parent = None
-        
-    def set_parent(self,parent):
-        if parent is None:
-            self.parent = None
-        else:
-            self.parent = parent
-            parent.children.append(self)
+
 
 
 def pixal_table_to_tree(pixal_table,number_of_base_sp):
-    replacement_table = np.array([None]*number_of_base_sp,dtype=SLICTreeNode)
+    replacement_table = np.array([None]*number_of_base_sp,
+                                     dtype=region_map.HierarchicalRegion)
 
     scales_sorted =  sorted(pixal_table.keys())
     
-    node_table = {}
-    
+
     for scale in scales_sorted:
-        node_table[scale] = []
-        
         for new_sp in pixal_table[scale]:
             children = np.unique(replacement_table[new_sp])
             
-            new_parrent = SLICTreeNode(new_sp,scale)
+            new_parrent = region_map.HierarchicalRegion(new_sp,scale)
             
             for child in children:
                 if child is not None:
-                    child.set_parent(new_parrent)
+                    new_parrent.children.append(child)
             
             replacement_table[new_sp] = new_parrent
-            node_table[scale].append(new_parrent)
+
         
-    return node_table,list(np.unique(replacement_table))
+    return list(np.unique(replacement_table))
     
-class HierarchicalSLIC(SLIC_gpu.SLIC):
+def HierarchicalSLIC(image,base_tile_size,max_tile_size=None,m_base=20,
+                     m_scale=0,sigma=3,total_runs = 1,max_itters=1000,
+                                                     min_cluster_size=32):
     """
-        A multiscale SLIC tilemap
-        
-        The keys are a a pair of thare index and the SLIC key 
+        A Hierarchical SLIC mapping
     """
+                                                       
+    base_slic = SLIC_gpu.SLIC(image,base_tile_size,m=m_base,
+                                          total_runs = total_runs,
+                                          max_itters=max_itters,
+                                          min_cluster_size=min_cluster_size)
     
-    def __init__(self,image,base_tile_size,max_tile_size=None,m_base=20,
-                   m_scale=0,sigma=3,total_runs = 1,max_itters=1000,min_cluster_size=32):
-                   
-        if(isinstance(base_tile_size,HierarchicalSLIC)):
-            other = base_tile_size #cleen up names
-            
-            SLIC_gpu.SLIC.__init__(self,image,other)
-            self._node_table = other._node_table
-            self._root_table = other._root_table
-            self._scales_sorted = other._scales_sorted
-            self._all_super_pixals = other._all_super_pixals
-            self._index_lookup_table = other._index_lookup_table
-        else:
-            if max_tile_size is None:
-                raise ValueError("Must provide a max tile size")
-            SLIC_gpu.SLIC.__init__(self,image,base_tile_size,m=m_base,
-                                          total_runs = total_runs,max_itters=max_itters,
-                                          min_cluster_size=min_cluster_size)                     
             
     
-            multiscale_table = calulate_multiscale(image,self._cluster_index,
-                                                   max_tile_size,m_scale,sigma)
-                                            
-            
-            self._node_table,self._root_table =  \
-                pixal_table_to_tree(multiscale_table,self._cluster_locations.shape[0])
-            
-            self._scales_sorted =  sorted(multiscale_table.keys())
-            
-            #http://stackoverflow.com/questions/716477/join-list-of-lists-in-python
-            #All superpixals will be incressing order
-            self._all_super_pixals = []
-            map(self._all_super_pixals.extend,[ self._node_table[scale] 
-                                                    for scale in self._scales_sorted])
-            self._index_lookup_table = {}
-            for idx,node in enumerate(self._all_super_pixals):
-                    self._index_lookup_table[node] = idx
-
-    def get_scales(self):
-        return self._scales_sorted
-        
-    def _get_nodes_less_then_scale(self,max_scale):
-        list_to_process = list(self._root_table)
-        out_list = []
-        while len(list_to_process) > 0:
-            node = list_to_process.pop()
-            
-            if node.scale < max_scale or len(node.children) == 0:
-                out_list.append(node)
-            else:
-                list_to_process += node.children
-        
-        return out_list
-        
-    def get_single_scale_map(self,scale):
-        
-        new_map = HierarchicalSLIC(self._image,self)
- 
-        
-        new_map._all_super_pixals = self._get_nodes_less_then_scale(scale)  
-        
-        new_map._index_lookup_table = {}
-        for idx,node in enumerate(new_map._all_super_pixals):
-            new_map._index_lookup_table[node] = idx
-            
-        new_map._scales_sorted = [scale]
-        new_map._node_table = {scale : new_map._all_super_pixals }
-        new_map._root_table = new_map._all_super_pixals
-        return new_map
-        
-    def get_submap(self,keyset):
-        root_set = set(keyset)
-        new_node_table = {}
-        
-        list_to_process = list(root_set)
-        all_super_pixals = []
-
-        while len(list_to_process) > 0:
-            node = list_to_process.pop()
-            all_super_pixals.append(node)
-            
-            if not node.scale in new_node_table:
-                new_node_table[node.scale] = []
-                
-            new_node_table[node.scale].append(node)
-
-            list_to_process += node.children
-        
-        new_map = HierarchicalSLIC(self._image,self)
-         
-        new_map._all_super_pixals = all_super_pixals 
-        
-        new_map._index_lookup_table = {}
-        for idx,node in enumerate(new_map._all_super_pixals):
-            new_map._index_lookup_table[node] = idx
-            
-        new_map._scales_sorted = sorted(new_node_table.keys())
-        new_map._node_table = new_node_table
-        new_map._root_table = list(root_set)
-        return new_map
-                
-        
-    #We use the same keys as SLIC so __getitem__ and __setitem__
-    #with the exeption of the adition of the index
-    def _node_to_base_key(self,node):
-        all_points = zip(*[ self._key_set[sp] for sp in node.list_of_sp ])
-        return tuple(map( np.concatenate ,all_points))
-        
-    def __getitem__(self,key):
-        """
-            Return a tile based on the key (which is the row/col)
-        """
-
-        return SLIC_gpu.SLIC.__getitem__(self,self._node_to_base_key(key))
-        
-    def __setitem__(self,key,value):
-        """
-            change the value of a tile based on a key (which is the row/col)
-        """     
-        SLIC_gpu.SLIC.__setitem__(self,self._node_to_base_key(key),value)
-        
-    def __len__(self):
-        """
-            Return the number of tiles, which is deturmand by size
-        """    
-        return len(self._all_super_pixals)
-        
-
-        
-    def __iter__(self):
-        """
-            itterate through all the keys
-        """          
-        return self._all_super_pixals.__iter__()
+    multiscale_table = calulate_multiscale(image,
+                                           base_slic.get_indicator_array(),
+                                           max_tile_size,m_scale,sigma)
+                                    
     
-    def get_key_from_image(self,image,location):
-        raise RuntimeError('Not yep implemented')
-        if image is self._image and \
-            location[0] > 0 and location[0] < image.shape[0] and \
-                    location[1] > 0 and location[1] < image.shape[1]:
-                        
-            return self.key_from_index(self._cluster_index[location])
-            
-        else:
-            raise KeyError("Invalid image point")
-            
-    def get_indexes_from_location(self,location):
-
-        if  location[0] >= 0 and location[0] < self._image.shape[0] and \
-                    location[1] >= 0 and location[1] < self._image.shape[1]:
-            inital_index = self._cluster_index[location]
-            all_indexes = [index 
-                           for index in xrange(len(self._all_super_pixals))
-                               if inital_index in self._all_super_pixals[index].list_of_sp ];
-                                   
-            return all_indexes
-            
-        else:
-            raise KeyError("Invalid image point")    
-
-    def index_from_key(self,key):
-        """
-            Retrun a index from 0 to len for a key
-        """
-
-        return self._index_lookup_table[key]
-        
+    root_table = pixal_table_to_tree(multiscale_table,len(base_slic))
+    
+    return region_map.HierarchicalRegionMap(base_slic,root_table)
     
 
-    def key_from_index(self,index):
-        """
-            Return key number index
-        """
-        return self._all_super_pixals[index]
-        
-    def get_tile_location(self, key):
-        """
-            Returns the location of the tile within the image
-        """
-        return SLIC_gpu.SLIC.get_tile_location(self,self._node_to_base_key(key))
-        
-    def tile_size(self):
-        return None 
-        
-    def copy_map_for_image(self,image):
-        """
-            Returns a new tile map with the same properyes for
-            a diffrent image
-        """
-        return HierarchicalSLIC(image,self)
-        
-    def display_tile(self,key):
-        return SLIC_gpu.SLIC.display_tile(self,self._node_to_base_key(key))    
-    
-    
-    def show_gui(self,image=None):
-        import matplotlib.pyplot as plt
-        from matplotlib.widgets import Slider
-
-        if image is None:
-            image = self._image
-        
-        plt.figure()
-        ax_image = plt.subplot2grid((7,1),(0,0),rowspan=6)
-        im_plot = ax_image.imshow(image)
-        
-        ax_scale = plt.subplot2grid((7,1),(6,0))
-
-        initial_scale = (np.max(self._scales_sorted) + np.min(self._scales_sorted))/2
-        scale_slider = Slider(ax_scale, 'Scale', np.min(self._scales_sorted), np.max(self._scales_sorted), valinit=initial_scale )
-        
-        def set_scale(scale):
-            selected_scale =min(self._scales_sorted, key=lambda x:abs(x-scale)) 
-            tile_map = self.get_single_scale_map(selected_scale)
-            
-            indicator = np.zeros(image.shape[:2]+(1,),np.int32)
-            indicator_map = tile_map.copy_map_for_image(indicator)
-            
-            for loc in xrange(len(tile_map)):
-                key = tile_map.key_from_index(loc)
-                indicator_map[key] = loc
-                
-            import skimage.segmentation
-            seg = skimage.segmentation.mark_boundaries(image,indicator[:,:,0])            
-            im_plot.set_data(seg)
-            
-        scale_slider.on_changed(set_scale)    
-        set_scale(initial_scale)
-        plt.show(block=True)
-        
-    
-    def get_scales_of_intrest(self):
-        scale_list = []
-        #Auto scale selection
-        
-        
-        
-        current_index = 0
-        while(current_index < len(self._scales_sorted) ):   
-            
-            curent_scale = self._scales_sorted[current_index]
-            print(curent_scale)
-            scale_list.append(curent_scale)
-            
-            
-            
-            texture_indicator = self.get_single_scale_map(curent_scale).get_indicator_array()
-            texture_indicator_map=self.copy_map_for_image(texture_indicator)
-            
-            
-            #Use a binery search to find the jump point
-            min_scale_index = current_index+1
-            max_scale_index = len(self._scales_sorted) -1
-            
-#            import matplotlib.pyplot as plt
-#            textures_per_clusters = np.zeros((len(self._scales_sorted),3))*np.nan
-#            clusters_with_more_then_min = np.zeros((len(self._scales_sorted)))*np.nan 
-
-            
-            has_set = False
-            while min_scale_index + 1 < max_scale_index:
-                
-                mid_scale_index = (max_scale_index+min_scale_index) /2
-                scale_at_mid = self._scales_sorted[mid_scale_index]
-                
-                texture_indicator_at_scale = texture_indicator_map.get_single_scale_map(scale_at_mid)
-                all_num = np.zeros(len(texture_indicator_at_scale))
-                
-                for tid,super_pixel in enumerate(texture_indicator_at_scale):
-                    all_num[tid] = len(np.unique(texture_indicator_at_scale[super_pixel]))
-                    
-                if np.min(all_num) >= 2 and not has_set:
-                    max_scale_index = mid_scale_index
-                else:
-                    min_scale_index = mid_scale_index
-                    
-                
-                if max_scale_index == min_scale_index + 1:
-                    current_index = max_scale_index
-                    has_set = True
-                    
-#                textures_per_clusters[mid_scale_index,0] = np.min(all_num)
-#                textures_per_clusters[mid_scale_index,1] = np.mean(all_num)
-#                textures_per_clusters[mid_scale_index,2] = np.max(all_num)
-#                clusters_with_more_then_min[mid_scale_index] = np.sum(all_num > np.min(all_num) )/float(len(texture_indicator_at_scale))
-                
-        
-#            plt.plot(self._scales_sorted,textures_per_clusters[:,0],'r*')
-#            #plt.plot(self._scales_sorted,textures_per_clusters[:,1],'g*')
-#            #plt.plot(self._scales_sorted,textures_per_clusters[:,2],'b*')
-#            plt.figure()
-#            plt.plot(self._scales_sorted,clusters_with_more_then_min,'*')
-#            plt.show(block=True)
-            
-            if not(has_set):
-                break
-        
-            #Add the max scale if needed        
-            #if scale_list[-1] < max_scale:
-            #    scale_list.append(max_scale)
-                
-        scale_list.reverse()
-        return scale_list
-        
-    def get_raw_data(self):
-        """
-            Outputs the content of this map as a numpy array with the base
-            superpixel of each pixel and a tree with the superpixels at each 
-            level. 
-        """
-
-        def recusive_build_tree(list_of_nodes):      
-            return [
-                         { 
-                          'scale' : node.scale,
-                          'list_of_base_superpixels' : node.list_of_sp,
-                          'children' : recusive_build_tree(node.children)
-                         } 
-                         for node in list_of_nodes 
-                   ]
-
-        
-        return (np.copy(self._cluster_index), 
-                    recusive_build_tree(self._root_table))
-        
-        
         
 if __name__ == '__main__':
         #From http://stackoverflow.com/questions/3579568/choosing-a-file-in-python-simple-gui

@@ -64,17 +64,17 @@ class HSLIC
 	int cols;
 
 	//A row major order array of size (rows*cols) 
-	//that indicates which base SLIC superpixel 
+	//that indicates which atomic SLIC superpixel 
 	//each pixel in the image belongs to.
 	std::vector<int> slic_indexes;
 
 	//A table that indicates which indexes in slic_indexes
 	//represents each superpixels. 
 	//
-	//That is i is in base_lookup_table[j] if and only if
+	//That is i is in atomic_lookup_table[j] if and only if
 	//		slic_indexes[i] == j
 
-	std::vector< std::vector<int> > base_lookup_table;
+	std::vector< std::vector<int> > atomic_lookup_table;
 
 	//The roots of the the HSLIC trees
 	std::vector<HSLICNode> tree_root;
@@ -98,9 +98,9 @@ public:
 	int get_cols() const;
 
 	/*
-	Returns the number of base superpixels
+	Returns the number of atomic superpixels
 	*/
-	int get_base_superpixels_count() const;
+	int get_atomic_superpixels_count() const;
 
 	/*
 	Returns a vector of HSLICSuperpixel containing all
@@ -112,7 +112,7 @@ public:
 	Returns a row by col array which states what superpixel each pixel in the image belongs to.
 	This is in Row major order.
 	*/
-	const std::vector<int>& get_base_superpixel_indicator();
+	const std::vector<int>& get_atomic_superpixel_indicator();
 
 	/*
 	Builds an indicator for an inputted list of superpixels.

@@ -352,3 +352,64 @@ class BinCountFeatureSpace(FeatureSpace):
         
     def get_name(self):
         return "%d-bin count" % self._moment_count
+        
+   
+#Generate a feature space from a name.      
+def create_feature_space(feature_space_name,**kwargs):
+    """
+    Build a feature space from a name and parameter. Useful for writing code 
+    that is able to adapt to multiple feature spaces. 
+    
+    Parameters
+    ----------
+    feature_space_name: str
+        The name of the feature space. 
+        Currently supports:
+          'histogram_moments': 
+          a ManyMomentFeatureSpace
+                Paramters: 
+                   moment_count: int
+                       The number of moments to use
+          'gabor_filters': 
+          a GaborFeatureSpace
+               Paramters: 
+                   gabor_lowest_central_freq: float, optimal 
+                       The smallest central frequency in cycles per pixel.
+                       This can be calculated automatically if 
+                       gabor_lowest_central_freq_ratio and curent_scale is 
+                       provided. 
+                   curent_scale: float, optimal
+                       The scale the features will be calculated on. 
+                   gabor_octave_count: int
+                       The number of octaves for the gabor filter.
+                   gabor_octave_jump: float
+                       The size of each octave in dB.
+                   gabor_angle_sensitivity: float
+                       The angular sensitivity of each filter in radions.
+          'quadtree': a QuadTreeFeatureSpace        
+                   quadtree_number_of_levels: int 
+                       The number of levels in the quad tree
+                    
+    """
+    
+    if feature_space_name == 'histogram_moments':
+        return ManyMomentFeatureSpace(kwargs['moment_count'])
+        
+    elif feature_space_name == 'gabor_filters':
+        if ('gabor_lowest_central_freq' in kwargs 
+                        and kwargs['gabor_lowest_central_freq']):
+            gabor_lowest_central_freq = kwargs['gabor_lowest_central_freq']
+        else:
+            gabor_lowest_central_freq = ( 
+                kwargs['gabor_lowest_central_freq_ratio']/kwargs['curent_scale']
+                )
+        return GaborFeatureSpace(octave_count=kwargs['gabor_octave_count'],
+                        octave_jump=kwargs['gabor_octave_jump'],
+                        lowest_centrail_freq=gabor_lowest_central_freq,
+                        angle_sensitivity=kwargs['gabor_angle_sensitivity'])
+                        
+    elif feature_space_name == 'quadtree':
+        return QuadTreeFeatureSpace(kwargs['quadtree_number_of_levels'])
+        
+    else:
+        raise Exception('Unknown feature space %s' % feature_space_name)

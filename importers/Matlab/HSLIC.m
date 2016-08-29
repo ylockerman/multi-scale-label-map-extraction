@@ -53,22 +53,22 @@ classdef HSLIC
     properties
         %The SLIC data at the lowest scale
         %This is an array the size of the image, where each element is the
-        %(zerobased) index of the base scale superpixel.
-        base_SLIC 
+        %(zerobased) index of the atomic scale superpixel.
+        atomic_SLIC 
         
         %A cell array with locations for each base superpixels
         %Each element in the array stores the location of the points within
         %each superpixel. Note that, as a matlab array, the elements are
         %accessed by a 1-based-indexing. Thus superpixel 0 is at element 1
         %and so on.
-        base_SLIC_table 
+        atomic_SLIC_table 
         
         %The tree of HSLIC superpixels 
         %This is a cell array of top level superpixels in the hierarchy.
         %Each element contains the following properties:
         % * scale: The scale of the SP
         % * list_of_base_superpixels: An array containing the (zerobased)
-        % list of base superpixels that make up this higher-level 
+        % list of atomic superpixels that make up this higher-level 
         % superpixel. 
         % * children: A cell array of child subpixels.  This child list
         % contains the same structure as HSLIC_tree itself.
@@ -86,21 +86,21 @@ classdef HSLIC
             %A labeling file can be created by using the python program
             %"multiscale_extraction." Please see that program for details.
             %This constructer takes the file path of that output file.
-            vars = {'image_shape','base_SLIC_rle','HSLIC'};
+            vars = {'image_shape','atomic_SLIC_rle','HSLIC'};
             vars = load(filename,vars{:});
 
-            %load base_SLIC fromt the run length encoding used in the file.
-            out.base_SLIC = zeros(vars.image_shape(1)*vars.image_shape(2),1,'int32');
+            %load atomic_SLIC fromt the run length encoding used in the file.
+            out.atomic_SLIC = zeros(vars.image_shape(1)*vars.image_shape(2),1,'int32');
             upto = 1;
-            for ii = 1:size(vars.base_SLIC_rle,1)
-                out.base_SLIC(upto:upto+vars.base_SLIC_rle(ii,1)-1) = vars.base_SLIC_rle(ii,2);
-                upto=upto+vars.base_SLIC_rle(ii,1);
+            for ii = 1:size(vars.atomic_SLIC_rle,1)
+                out.atomic_SLIC(upto:upto+vars.atomic_SLIC_rle(ii,1)-1) = vars.atomic_SLIC_rle(ii,2);
+                upto=upto+vars.atomic_SLIC_rle(ii,1);
             end
-            out.base_SLIC = reshape(out.base_SLIC,vars.image_shape(2),vars.image_shape(1))';
+            out.atomic_SLIC = reshape(out.atomic_SLIC,vars.image_shape(2),vars.image_shape(1))';
 
             %Build a lookup table for the diffrent superpixels 
             lookup_table = zeros(3,vars.image_shape(1),vars.image_shape(2));
-            lookup_table(1,:,:) = out.base_SLIC;
+            lookup_table(1,:,:) = out.atomic_SLIC;
             [lookup_table(3,:,:),lookup_table(2,:,:)] = ...
                       meshgrid(1:vars.image_shape(2),1:vars.image_shape(1));
             
@@ -110,9 +110,9 @@ classdef HSLIC
             [~,ia,~] = unique(sorted_tables(1,:));
             ia = [ia; size(sorted_tables,2)];
             
-            out.base_SLIC_table = cell(max(max(out.base_SLIC+1)),1);
+            out.atomic_SLIC_table = cell(max(max(out.atomic_SLIC+1)),1);
             for ii = 1:(size(ia,1)-1)
-                out.base_SLIC_table{ii} = sorted_tables(2:end,ia(ii):ia(ii+1)-1);
+                out.atomic_SLIC_table{ii} = sorted_tables(2:end,ia(ii):ia(ii+1)-1);
             end
             
             out.scale_list = get_all_scales(vars.HSLIC);
@@ -126,7 +126,7 @@ classdef HSLIC
         %   array with an superpixel index at each location. Note that the
         %   index given is arbitrary.
 
-            indicator = zeros(size(obj.base_SLIC));
+            indicator = zeros(size(obj.atomic_SLIC));
             [indicator, ~] = make_indicator(indicator,1,obj.HSLIC_tree,obj,scale);
         end
         
@@ -150,8 +150,8 @@ function [indicator,next_id] = make_indicator(indicator,next_id,HSLIC_node_list,
     
     for subnode = HSLIC_node_list
         if  subnode{1}.scale <= scale || isempty(subnode{1}.children)
-            for spid = subnode{1}.list_of_base_superpixels 
-                indexes = obj.base_SLIC_table{spid+1};
+            for spid = subnode{1}.list_of_atomic_superpixels 
+                indexes = obj.atomic_SLIC_table{spid+1};
                 indicator(indexes(1,:),indexes(2,:)) = next_id;
             end
             next_id = next_id + 1;

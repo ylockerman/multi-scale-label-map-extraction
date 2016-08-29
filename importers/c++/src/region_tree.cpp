@@ -98,26 +98,26 @@ void load_region(matvar_t* struct_array, Region& out)
 		throw std::exception("Scale has unknown type");
 	}
 
-	//load the list of base superpixels.
+	//load the list of atomic superpixels.
 	//This will need to be a array of 32 or 64 bit integers.
-	matvar_t* list_of_base_superpixels = get_struct_field(struct_array, "list_of_base_superpixels");
+	matvar_t* list_of_atomic_superpixels = get_struct_field(struct_array, "list_of_atomic_superpixels");
 
-	int number_of_base_superpixels = list_of_base_superpixels->nbytes / list_of_base_superpixels->data_size;
-	out.base_superpixels.resize(number_of_base_superpixels);
+	int number_of_atomic_superpixels = list_of_atomic_superpixels->nbytes / list_of_atomic_superpixels->data_size;
+	out.atomic_superpixels.resize(number_of_atomic_superpixels);
 
-	if (list_of_base_superpixels->data_type == MAT_T_INT32)
+	if (list_of_atomic_superpixels->data_type == MAT_T_INT32)
 	{
-		int32_t* base_list = (int32_t*)list_of_base_superpixels->data;
-		std::copy(base_list, base_list + number_of_base_superpixels, out.base_superpixels.begin());
+		int32_t* atomic_list = (int32_t*)list_of_atomic_superpixels->data;
+		std::copy(atomic_list, atomic_list + number_of_atomic_superpixels, out.atomic_superpixels.begin());
 	}
-	else if (list_of_base_superpixels->data_type == MAT_T_INT64)
+	else if (list_of_atomic_superpixels->data_type == MAT_T_INT64)
 	{
-		int64_t* base_list = (int64_t*)list_of_base_superpixels->data;
-		std::copy(base_list, base_list + number_of_base_superpixels, out.base_superpixels.begin());
+		int64_t* atomic_list = (int64_t*)list_of_atomic_superpixels->data;
+		std::copy(atomic_list, atomic_list + number_of_atomic_superpixels, out.atomic_superpixels.begin());
 	}
 	else
 	{
-		throw std::exception("list_of_base_superpixels has unknown type");
+		throw std::exception("list_of_atomic_superpixels has unknown type");
 	}
 }
 

@@ -49,7 +49,7 @@ If you find it useful, please consider giving us credit or citing our paper.
 Describes a region in the image. In the case of superpixels that region is a 
 continuous region. In the case of labels it can be any region.
 
-The region is defined by a list of base suerpixels that's union composes
+The region is defined by a list of atomic suerpixels that's union composes
 the region. 
 */
 struct Region
@@ -58,7 +58,7 @@ struct Region
 	/*
 	A list of super pixels that belong to our texture
 	*/
-	std::vector<int> base_superpixels;
+	std::vector<int> atomic_superpixels;
 
 	/*The scale of the node (negitive if not avalable)*/
 	float scale;

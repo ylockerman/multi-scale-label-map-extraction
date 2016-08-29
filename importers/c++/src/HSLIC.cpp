@@ -111,50 +111,50 @@ HSLIC::HSLIC(const std::string& file) throw(std::exception)
 		Mat_VarFree(image_shape);
 	}
 
-	//--------Read the base superpixels-------------------------------------------
+	//--------Read the atomic superpixels-------------------------------------------
 	{
 		slic_indexes.resize(rows*cols);
 
-		matvar_t *base_SLIC_rle = Mat_VarRead(matfp, "base_SLIC_rle");
+		matvar_t *atomic_SLIC_rle = Mat_VarRead(matfp, "atomic_SLIC_rle");
 
-		if (base_SLIC_rle == NULL)
+		if (atomic_SLIC_rle == NULL)
 		{
 			Mat_Close(matfp);
-			throw std::exception((std::string("File does not include base_SLIC_rle. Error while loading file: ") + file).c_str());
+			throw std::exception((std::string("File does not include atomic_SLIC_rle. Error while loading file: ") + file).c_str());
 		}
 
-		if (base_SLIC_rle->rank != 2 || base_SLIC_rle->isComplex ||
-			base_SLIC_rle->dims[1] != 2)
+		if (atomic_SLIC_rle->rank != 2 || atomic_SLIC_rle->isComplex ||
+			atomic_SLIC_rle->dims[1] != 2)
 		{
-			Mat_VarFree(base_SLIC_rle);
+			Mat_VarFree(atomic_SLIC_rle);
 			Mat_Close(matfp);
-			throw std::exception((std::string("base_SLIC_rle is invalid. Error while loading file: ") + file).c_str());
+			throw std::exception((std::string("atomic_SLIC_rle is invalid. Error while loading file: ") + file).c_str());
 		}
 
-		if (base_SLIC_rle->data_type == MAT_T_INT64)
+		if (atomic_SLIC_rle->data_type == MAT_T_INT64)
 		{
-			load_rle_data((int64_t*)base_SLIC_rle->data, base_SLIC_rle->dims[0], slic_indexes);
+			load_rle_data((int64_t*)atomic_SLIC_rle->data, atomic_SLIC_rle->dims[0], slic_indexes);
 		}
-		else if (base_SLIC_rle->data_type == MAT_T_INT32)
+		else if (atomic_SLIC_rle->data_type == MAT_T_INT32)
 		{
-			load_rle_data((int32_t*)base_SLIC_rle->data, base_SLIC_rle->dims[0], slic_indexes);
+			load_rle_data((int32_t*)atomic_SLIC_rle->data, atomic_SLIC_rle->dims[0], slic_indexes);
 		}
 		else
 		{
-			Mat_VarFree(base_SLIC_rle);
+			Mat_VarFree(atomic_SLIC_rle);
 			Mat_Close(matfp);
-			throw std::exception((std::string("base_SLIC_rle has unknown type. Error while loading file: ") + file).c_str());
+			throw std::exception((std::string("atomic_SLIC_rle has unknown type. Error while loading file: ") + file).c_str());
 		}
 
-		Mat_VarFree(base_SLIC_rle);
+		Mat_VarFree(atomic_SLIC_rle);
 	}
 
 	//--------Compute the lookup table-----------------------
-	int number_of_base_superpixels = *std::max_element(slic_indexes.begin(), slic_indexes.end()) + 1;
-	base_lookup_table.resize(number_of_base_superpixels);
+	int number_of_atomic_superpixels = *std::max_element(slic_indexes.begin(), slic_indexes.end()) + 1;
+	atomic_lookup_table.resize(number_of_atomic_superpixels);
 
 	for (int i = 0; i < slic_indexes.size(); i++)
-		base_lookup_table[slic_indexes[i]].push_back(i);
+		atomic_lookup_table[slic_indexes[i]].push_back(i);
 
 	//--------Read the HSLIC tree-------------------------------------------
 	{
@@ -192,9 +192,9 @@ int HSLIC::get_cols() const
 	return cols;
 }
 
-int HSLIC::get_base_superpixels_count() const
+int HSLIC::get_atomic_superpixels_count() const
 {
-	return base_lookup_table.size();
+	return atomic_lookup_table.size();
 }
 
 
@@ -225,7 +225,7 @@ std::vector<HSLICSuperpixel> HSLIC::superpixels_at_scale(float scale) const
 }
 
 
-const std::vector<int>& HSLIC::get_base_superpixel_indicator()
+const std::vector<int>& HSLIC::get_atomic_superpixel_indicator()
 {
 	return slic_indexes;
 }
@@ -237,11 +237,11 @@ std::vector<int> HSLIC::superpixels_indicator(const std::vector<HSLICSuperpixel>
 	std::vector<int> indicator(rows*cols,-1);
 	for (int superpixel_id = 0; superpixel_id < superpixels.size(); superpixel_id++)
 	{
-		//Go through each base_superpixel of superpixel_id
-		for (int base_superpixel : superpixels[superpixel_id].base_superpixels)
+		//Go through each atomic_superpixel of superpixel_id
+		for (int atomic_superpixel : superpixels[superpixel_id].atomic_superpixels)
 		{
 			//Mark each index of each superpixel
-			for (int index : base_lookup_table[base_superpixel])
+			for (int index : atomic_lookup_table[atomic_superpixel])
 				indicator[index] = superpixel_id;
 		}
 	}
