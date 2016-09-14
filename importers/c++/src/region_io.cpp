@@ -39,20 +39,42 @@ If you find it useful, please consider giving us credit or citing our paper.
 @author : Yitzchak David Lockerman
 */
 
-#include "HSLIC.h"
+#include "region_io.h"
+#include "region_map.h"
 #include "matio.h"
 #include <stdint.h>
 #include <algorithm>  
 #include <iostream>
 
-int get_total_element_count(matvar_t* arry)
+size_t get_total_element_count(matvar_t* arry)
 {
-	int number_of_element = 1;
+	size_t number_of_element = 1;
 	for (int dim = 0; dim < arry->rank; dim++)
 		number_of_element *= arry->dims[dim];
-	
+
 	return number_of_element;
 }
+
+
+
+matvar_raii::matvar_raii(matvar_t* ptr) : std::unique_ptr<matvar_t, void (*)(matvar_t *)>(ptr, Mat_VarFree)
+{}
+
+matvar_raii::operator matvar_t* ()
+{
+	return get();
+}
+
+
+
+mat_raii::mat_raii(_mat_t* ptr) : std::unique_ptr<_mat_t, int(*)(_mat_t *)>(ptr, Mat_Close)
+{}
+
+mat_raii::operator _mat_t* ()
+{
+	return get();
+}
+
 
 /*
 Returns a field within a struct_array. Note that the item should not be freed. 
@@ -75,34 +97,20 @@ matvar_t* get_struct_field(matvar_t* struct_array, std::string name, bool option
 /*
 Loads a region (Superpixel or label) from a struct_array 
 */
-void load_region(matvar_t* struct_array, Region& out)
+CompoundRegion load_region(matvar_t* struct_array)
 {
 	if (struct_array->data_type != MAT_T_STRUCT )
 	{
 		throw std::exception("cells should have struct array");
 	}
 
-	//load the scale. This will need to be a float or double. 
-	matvar_t* scale = get_struct_field(struct_array, "scale");
-
-	if (scale->data_type == MAT_T_SINGLE)
-	{
-		out.scale = *((float*)scale->data);
-	}
-	else if (scale->data_type == MAT_T_DOUBLE)
-	{
-		out.scale = *((double*)scale->data);
-	}
-	else
-	{
-		throw std::exception("Scale has unknown type");
-	}
 
 	//load the list of atomic superpixels.
 	//This will need to be a array of 32 or 64 bit integers.
 	matvar_t* list_of_atomic_superpixels = get_struct_field(struct_array, "list_of_atomic_superpixels");
 
-	int number_of_atomic_superpixels = list_of_atomic_superpixels->nbytes / list_of_atomic_superpixels->data_size;
+	size_t number_of_atomic_superpixels = list_of_atomic_superpixels->nbytes / list_of_atomic_superpixels->data_size;
+	CompoundRegion out;
 	out.atomic_superpixels.resize(number_of_atomic_superpixels);
 
 	if (list_of_atomic_superpixels->data_type == MAT_T_INT32)
@@ -119,36 +127,55 @@ void load_region(matvar_t* struct_array, Region& out)
 	{
 		throw std::exception("list_of_atomic_superpixels has unknown type");
 	}
+
+	return out;
 }
 
 /*
 This method loads a region from the tree format used in our file.
 */
-void load_region_node_from_cell_array(matvar_t* cell_array, std::vector<RegionNode>& output)
+std::vector<HierarchicalRegionPtr> load_region_node_from_cell_array(matvar_t* cell_array)
 {
 	if (cell_array->data_type != MAT_T_CELL || cell_array->nbytes < 1)
 		throw std::exception("Invalid tree data structure");
 
-	int number_of_cells = get_total_element_count(cell_array);
+	size_t number_of_cells = get_total_element_count(cell_array);
 
-	matvar_t **all_cells = Mat_VarGetCellsLinear(cell_array, 0, 1, number_of_cells);
+	matvar_t **all_cells = Mat_VarGetCellsLinear(cell_array, 0, 1, (int)number_of_cells);
 
 	if (all_cells == NULL)
 		throw std::exception("Invalid tree data structure");
 
-	output.resize(number_of_cells);
+	std::vector<HierarchicalRegionPtr> output(number_of_cells);
 	for (int i = 0; i < number_of_cells; i++)
 	{
 		try
 		{
 			//Find the elements of intrest and use them
-			load_region(all_cells[i], output[i].region);
+			output[i] = HierarchicalRegionPtr(new HierarchicalRegion());
+			(*(std::dynamic_pointer_cast<CompoundRegion>(output[i]))) = load_region(all_cells[i]);
+
+			//load the scale. This will need to be a float or double. 
+			matvar_t* scale = get_struct_field(all_cells[i], "scale");
+
+			if (scale->data_type == MAT_T_SINGLE)
+			{
+				output[i]->scale = *((float*)scale->data);
+			}
+			else if (scale->data_type == MAT_T_DOUBLE)
+			{
+				output[i]->scale = (float)*((double*)scale->data);
+			}
+			else
+			{
+				throw std::exception("Scale has unknown type");
+			}
 
 			//Recursivly load the subregions
 			matvar_t * children = get_struct_field(all_cells[i], "children", true);
 
 			if (children != NULL)
-				load_region_node_from_cell_array(children, output[i].children_node);
+				output[i]->children_node = load_region_node_from_cell_array(children);
 		}
 		catch (...)
 		{
@@ -159,4 +186,82 @@ void load_region_node_from_cell_array(matvar_t* cell_array, std::vector<RegionNo
 
 
 	free(all_cells);
+	return output;
+}
+
+
+image_size load_image_size(matvar_t *image_shape)
+{
+	image_size output;
+
+
+	if (image_shape == NULL)
+		throw std::exception("File dose not include image_shape.");
+
+	if (image_shape->rank != 2 || image_shape->isComplex ||
+		image_shape->dims[0] != 1 || image_shape->dims[1] != 3)
+		throw std::exception("image_shape is invalid.  ");
+
+
+	if (image_shape->data_type == MAT_T_INT64)
+	{
+		int64_t* image_shape_data = (int64_t*)image_shape->data;
+		output.rows = image_shape_data[0];
+		output.cols = image_shape_data[1];
+		output.stride = image_shape_data[2];
+	}
+	else if (image_shape->data_type == MAT_T_INT32)
+	{
+		int32_t* image_shape_data = (int32_t*)image_shape->data;
+		output.rows = image_shape_data[0];
+		output.cols = image_shape_data[1];
+		output.stride = image_shape_data[2];
+	}
+	else
+	{
+		throw std::exception("image_shape has unknown type.");
+	}
+
+	return output;
+}
+
+
+
+
+
+template<typename T>
+std::valarray<size_t> load_rle_data(T* data_array, size_t number_of_ellements, const image_size& size)
+{
+	std::valarray<size_t> slic_indexes(size.rows*size.cols);
+
+	auto itter = begin(slic_indexes);
+
+	for (size_t elid = 0; elid < number_of_ellements; elid++)
+	{
+		T run_lenght = data_array[elid];
+		T value = data_array[number_of_ellements + elid];
+
+		itter = std::fill_n(itter, run_lenght, value);
+	}
+
+	return slic_indexes;
+
+}
+
+std::valarray<size_t> load_atomic_regions_from_rle(matvar_t *atomic_region_rle, const image_size size)
+{
+	if (atomic_region_rle == NULL)
+		throw std::exception("File does not include atomic_SLIC_rle");
+
+
+	if (atomic_region_rle->rank != 2 || atomic_region_rle->isComplex ||
+		atomic_region_rle->dims[1] != 2)
+			throw std::exception("atomic_SLIC_rle is invalid.");
+
+	if (atomic_region_rle->data_type == MAT_T_INT64)
+		return load_rle_data((int64_t*)atomic_region_rle->data, atomic_region_rle->dims[0], size);
+	else if (atomic_region_rle->data_type == MAT_T_INT32)
+		return load_rle_data((int32_t*)atomic_region_rle->data, atomic_region_rle->dims[0], size);
+	else
+		throw std::exception("atomic_SLIC_rle has unknown type.");
 }

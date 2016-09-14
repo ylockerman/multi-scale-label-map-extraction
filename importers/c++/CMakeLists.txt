@@ -9,8 +9,8 @@ add_library(label_map_io src_matio/endian.c src_matio/inflate.c src_matio/io.c
 						 src_matio/mat73.c  src_matio/matvar_cell.c 
 						 src_matio/matvar_struct.c src_matio/read_data.c 
 						 src_matio/snprintf.c 
-						 src/HSLIC.cpp include/HSLIC.h 
-						 src/region_tree.cpp include/region_tree.h)
+						 include/HSLIC.h include/region_map.h
+						 src/region_io.cpp include/region_io.h)
 
 target_include_directories(label_map_io PRIVATE 
 								${CMAKE_CURRENT_SOURCE_DIR}/include_matio)

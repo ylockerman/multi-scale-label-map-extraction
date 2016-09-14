@@ -58,6 +58,8 @@ Where:
 
 using namespace std;
 
+typedef unsigned char byte;
+
 int main(int argc, char* argv[])
 {
 	//Print somthing of a useful message if we get an exception
@@ -79,21 +81,17 @@ int main(int argc, char* argv[])
 		float scale = stof(argv[3]);
 
 		//Load the HSLIC file
-		HSLIC hslic(filename_in);
+		//Create a map to a blank image
+		HierarchicalRegionMap<byte> hslic = load_HLIC<byte>(filename_in, 3);
 
 		//Get the array of superpixels at the scale of interest.
-		vector<HSLICSuperpixel> superpixels = hslic.superpixels_at_scale(scale);
+		CompoundRegionMap<byte> superpixels = hslic.get_single_scale_map(scale);
 
-		//Create an indicator vector. Each pixel will be labeled by superpixel that contains it. 
-		//This is in row major order, that is element (r,c) can be accseed as indexes[c + r*hslic.get_cols()]
-		std::vector<int> indexes = hslic.superpixels_indicator(superpixels);
+		//Create a random color for each superpixel, and fill in the image to that color 
+		for (const CompoundRegionMap<byte>::RegionKey& key : superpixels)
+			superpixels[key] = (byte)(rand() % 255);
 
-		//Create a random color for each superpixel
-		vector<string> color_table(superpixels.size(), "");
-		for (int i = 0; i < color_table.size(); i++)
-		{
-			color_table[i] = to_string(rand() % 255) + " " + to_string(rand() % 255) + " " + to_string(rand() % 255);
-		}
+
 
 		//output to PPM format
 		//See http://netpbm.sourceforge.net/doc/ppm.html
@@ -110,7 +108,8 @@ int main(int argc, char* argv[])
 		{
 			for (int c = 0; c < hslic.get_cols(); c++)
 			{
-				output << color_table[indexes[c + r*hslic.get_cols()]] << " ";
+				const valarray<byte>& color = superpixels.value_at(r,c);
+				output << (int)color[0] << " " << (int)color[1] << " " << (int)color[2] << " ";
 			}
 			output << endl;
 		}

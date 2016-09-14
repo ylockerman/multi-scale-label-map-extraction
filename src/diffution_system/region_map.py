@@ -72,7 +72,7 @@ class AbstractRegionMap(collections.Mapping):
     @abc.abstractmethod  
     def __len__(self):
         """
-            Return the number of tiles, which is deturmand by size
+            Return the number of regions
         """    
         return None
         

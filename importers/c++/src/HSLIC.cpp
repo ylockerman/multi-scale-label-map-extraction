@@ -41,25 +41,12 @@ If you find it useful, please consider giving us credit or citing our paper.
 
 
 #include "HSLIC.h"
+#include "region_io.h"
 #include "matio.h"
 #include <stdint.h>
 #include <algorithm>  
 #include <iostream>
 
-template<typename T>
-void load_rle_data(T* data_array, size_t number_of_ellements, std::vector<int>& slic_indexes)
-{
-	auto itter = slic_indexes.begin();
-
-	for (size_t elid = 0; elid < number_of_ellements; elid++)
-	{
-		T run_lenght = data_array[elid];
-		T value = data_array[number_of_ellements + elid];
-
-		itter = std::fill_n(itter, run_lenght, value);
-	}
-
-}
 
 
 HSLIC::HSLIC(const std::string& file) throw(std::exception)
@@ -74,41 +61,11 @@ HSLIC::HSLIC(const std::string& file) throw(std::exception)
 
 	//--------Read the shape of the image-------------------------------------------
 	{
-		matvar_t *image_shape = Mat_VarRead(matfp, "image_shape");
-		if (image_shape == NULL)
-		{
-			Mat_Close(matfp);
-			throw std::exception((std::string("File dose not include image_shape. Error while loading file: ") + file).c_str());
-		}
+		matvar_raii image_shape = Mat_VarRead(matfp, "image_shape");
+		image_size is = load_image_size(image_shape);
 
-		if (image_shape->rank != 2 || image_shape->isComplex ||
-			image_shape->dims[0] != 1 || image_shape->dims[1] != 3)
-		{
-			Mat_VarFree(image_shape);
-			Mat_Close(matfp);
-			throw std::exception((std::string("image_shape is invalid. Error while loading file: ") + file).c_str());
-		}
-
-		if (image_shape->data_type == MAT_T_INT64)
-		{
-			int64_t* image_shape_data = (int64_t*)image_shape->data;
-			rows = image_shape_data[0];
-			cols = image_shape_data[1];
-		}
-		else if (image_shape->data_type == MAT_T_INT32)
-		{
-			int32_t* image_shape_data = (int32_t*)image_shape->data;
-			rows = image_shape_data[0];
-			cols = image_shape_data[1];
-		}
-		else
-		{
-			Mat_VarFree(image_shape);
-			Mat_Close(matfp);
-			throw std::exception((std::string("image_shape has unknown type. Error while loading file: ") + file).c_str());
-		}
-
-		Mat_VarFree(image_shape);
+		rows = is.rows;
+		cols = is.cols;
 	}
 
 	//--------Read the atomic superpixels-------------------------------------------
@@ -205,10 +162,10 @@ void recursive_build_superpixel_list_at_scale(const std::vector<HSLICNode>& tree
 {
 	for (HSLICNode node : tree_list)
 	{
-		if (node.region.scale <= scale || node.children_node.size() == 0)
-			out.push_back(node.region);
+		if (node->scale <= scale || node->children_node.size() == 0)
+			out.push_back(*node);
 		else
-			recursive_build_superpixel_list_at_scale(node.children_node, scale, out);
+			recursive_build_superpixel_list_at_scale(node->children_node, scale, out);
 	}
 }
 

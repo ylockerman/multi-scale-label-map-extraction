@@ -47,88 +47,30 @@ If you find it useful, please consider giving us credit or citing our paper.
 #include <vector>
 #include <string>
 #include <exception>
-#include "region_tree.h"
+#include "region_map.h"
+#include "region_io.h"
+#include "matio.h"
 
-typedef RegionNode HSLICNode;
-typedef Region HSLICSuperpixel;
+typedef HierarchicalRegionPtr HSLICNode;
+typedef CompoundRegion HSLICSuperpixel;
 
-/*
-This class stores a tree of HSLIC data.
-*/
-class HSLIC
+
+template <typename ImageData>
+HierarchicalRegionMap<ImageData> load_HLIC(const std::string& file,size_t stride = 0)
 {
-	//The number of rows in the image
-	int rows;
+	mat_raii matfp = Mat_Open(file.c_str(), MAT_ACC_RDONLY);
 
-	//The number of coloumns in the image
-	int cols;
-
-	//A row major order array of size (rows*cols) 
-	//that indicates which atomic SLIC superpixel 
-	//each pixel in the image belongs to.
-	std::vector<int> slic_indexes;
-
-	//A table that indicates which indexes in slic_indexes
-	//represents each superpixels. 
-	//
-	//That is i is in atomic_lookup_table[j] if and only if
-	//		slic_indexes[i] == j
-
-	std::vector< std::vector<int> > atomic_lookup_table;
-
-	//The roots of the the HSLIC trees
-	std::vector<HSLICNode> tree_root;
+	if (!matfp)
+		throw std::exception((std::string("Unable to open MAT file: ") + file).c_str());
 
 
-public:
+	AtomicRegionMap<ImageData> SLIC = load_atomic_region_map<ImageData>(matfp, "image_shape", "atomic_SLIC_rle", stride);
 
-	/*
-	Lodes the multiscale texture set from a file
-	*/
-	HSLIC(const std::string& file) throw(std::exception);
+	HierarchicalRegionMap<ImageData> HSLIC = load_hierarchical_region_map<ImageData>(matfp, SLIC, "HSLIC");
 
-	/*
-	Retruns the number of rows in the image
-	*/
-	int get_rows() const;
+	return HSLIC;
+}
 
-	/*
-	Retruns the number of columns in the image
-	*/
-	int get_cols() const;
 
-	/*
-	Returns the number of atomic superpixels
-	*/
-	int get_atomic_superpixels_count() const;
-
-	/*
-	Returns a vector of HSLICSuperpixel containing all
-	the superpixels at a given scale
-	*/
-	std::vector<HSLICSuperpixel> superpixels_at_scale(float scale) const;
-
-	/*
-	Returns a row by col array which states what superpixel each pixel in the image belongs to.
-	This is in Row major order.
-	*/
-	const std::vector<int>& get_atomic_superpixel_indicator();
-
-	/*
-	Builds an indicator for an inputted list of superpixels.
-	Each pixel in the indicator will give the index of the the input array where
-	that pixel belongs to. The result is undefined if a pixel belongs to multiple 
-	superpixels. 
-
-	This is an indicator array in row major order.
-	*/
-	std::vector<int> HSLIC::superpixels_indicator(const std::vector<HSLICSuperpixel>& superpixels) const;
-
-	/*
-	Returns the set of multiscale texture trees.
-	*/
-	const std::vector<HSLICNode>& get_superpixel_trees();
-
-};
 
 #endif
