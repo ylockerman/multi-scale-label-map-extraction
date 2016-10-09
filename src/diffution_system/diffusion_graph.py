@@ -28,21 +28,25 @@ def build_knn_graph_gpu(features,k):
 
     return nearist,dist*dist
     
-def build_knn_graph_ann(features,k,eps=.001):
+def build_knn_graph_ann(features,k):
     """
         Create a knn graph using the ann library 
     """
     if k > features.shape[0]:
         k = features.shape[0]
         
-    print "Creating a %d-nn graph on the cpu with an error of 1+%f" % (k,eps);
+    print "Creating a %d-nn graph on the cpu" % (k);
     
-    import scikits.ann as ann
+    #import scikits.ann as ann
 
-    knn_finder = ann.kdtree(features);
-    nearist, dist_sqr= knn_finder.knn(features,k,eps);
+    #knn_finder = ann.kdtree(features);
+    #nearist, dist_sqr= knn_finder.knn(features,k,eps);
     
-    return nearist,dist_sqr
+    import sklearn.neighbors
+    nbrs = sklearn.neighbors.NearestNeighbors(n_neighbors=k,n_jobs=-1);
+    dist, nearist = nbrs.fit(features).kneighbors(features)
+
+    return nearist,dist**2
 
 
 def knn_graph_to_weight_matrix(graph,smothing_factor='smothing_factor',

@@ -1,0 +1,12 @@
+numpy
+scipy
+bottleneck
+joblib
+Mako
+msgpack_python
+pyamg
+pyopencl
+pytools
+scikit-image
+matplotlib
+scikit-learn

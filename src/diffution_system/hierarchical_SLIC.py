@@ -549,19 +549,18 @@ class CenterCalulator:
         assert centers_out.shape[1] == self.reduction_vector_size
         assert number_out.shape[0] == self._total_superpixel_count
 
-
         element_count = image.shape[0]*image.shape[1];
         last_element_count = np.Inf
-        
+
         #set up the reduction values
         self._initiate_reduction_values(self._queue,image.shape,None,
                                         image.data,
                                         self._color_sum_buffer[0].data)
-                                                               
+
         index_buffer = super_pixals
         while element_count < last_element_count:
             last_element_count = element_count
-            
+
             global_size = ( opencl_tools.pad_overshoot(
                                 element_count,self._kernal_size[0]),)
             work_group_count = (global_size[0])/self._kernal_size[0]
@@ -578,10 +577,11 @@ class CenterCalulator:
                                    self._count_buffer[1].data,
                                    self._good_items_for_workgroup.data
                                    )
-    
+ 
             self._place_results(self._good_items_for_workgroup,queue=self._queue)
             
 
+            
             self._reposition_kernal_elements(self._queue,
                                            global_size,
                                            self._kernal_size,
@@ -593,7 +593,7 @@ class CenterCalulator:
                                            self._count_buffer[0].data,
                                            self._good_items_for_workgroup.data
                                            )
-                                           
+                                    
 
             element_count = self._good_items_for_workgroup.get(self._queue)[work_group_count-1]
             
@@ -614,8 +614,8 @@ class CenterCalulator:
                                  self._count_buffer[1].data,
                                  centers_out.data,
                                  number_out.data)
-        
 
+        
 #        full_count =  number_out.get(self._queue)
 #                
 #        #diff = full_count - ground_truth_full_count
@@ -1084,8 +1084,10 @@ def calulate_multiscale(image,lowest_level_cluster,
     
     living_clusters = total_clusters
     while(S_current < highest_scale and living_clusters > 1):
-
         blure_filter(image_gpu,image_gpu_buffer)
+        #I don't know why this is needed but it seems to fix issues on Nvidia gpus
+        cl.enqueue_barrier(queue).wait();
+
         image_gpu, image_gpu_buffer = image_gpu_buffer,image_gpu
         
         S_current += sigma;
@@ -1151,7 +1153,7 @@ def calulate_multiscale(image,lowest_level_cluster,
                 
                 if(finsh_buffer.get(queue)[0] == 1):
                     break;
-    
+                    
             merge_indicator_cpu = merge_indicator.get(queue).astype(np.bool)
             cluster_rename_table_cpu = cluster_rename_table.get(queue)
 
@@ -1178,7 +1180,6 @@ def calulate_multiscale(image,lowest_level_cluster,
             live_pointwise_neghbors = new_size_buffer.get(queue)[0]
 
             living_clusters = active_clusters_count(cluster_rename_table,queue=queue).get(queue)
-
 #            ##############Debug
 #            img_blure.set_data(color.lab2rgb(image_gpu.get(queue).astype(np.float64)))
 #            deb_dis_im,deb_dis_var = make_indicator_image()

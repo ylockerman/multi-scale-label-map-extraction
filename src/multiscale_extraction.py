@@ -83,6 +83,9 @@ from skimage import io, color
 
 import time
 
+#if os.name == "nt":
+#    import sys
+#    multiprocessing.set_executable(os.path.join(sys.exec_prefix, 'pythonw.exe'))
 
 #A number of defualt values
 #These will be updated from the command arguments
@@ -321,6 +324,11 @@ def output_RLE(image):
 if __name__ == '__main__':    
     multiprocessing.freeze_support()
 
+    #There seems to be a bug that freeze settings get changed when Tk is called 
+    #we save it now to restore it. 
+    import sys
+    frozen_status = getattr(sys, 'frozen', False)
+    
     args = prase_arguments()
     
     constants['hierarchical_SLIC']['m_base']            = args.m_base
@@ -389,6 +397,11 @@ if __name__ == '__main__':
         save_file_name = args.output_file
 
 
+    if frozen_status:
+        sys.frozen = frozen_status
+    else:
+        del sys.frozen
+        
     image = io.imread(file_name)/255.0
     if len(image.shape) == 2:
         image = np.concatenate((image[:,:,None],image[:,:,None],image[:,:,None]),axis=2)
