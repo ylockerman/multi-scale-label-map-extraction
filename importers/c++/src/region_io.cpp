@@ -132,9 +132,100 @@ CompoundRegion load_region(matvar_t* struct_array)
 }
 
 /*
+This method loads a region list format used in our file.
+*/
+std::vector<CompoundRegionPtr> load_region_node_from_cell_array(matvar_t* cell_array)
+{
+	if (cell_array->data_type != MAT_T_CELL || cell_array->nbytes < 1)
+		throw std::exception("Invalid CompoundRegion cell");
+
+	size_t number_of_cells = get_total_element_count(cell_array);
+
+	matvar_t **all_cells = Mat_VarGetCellsLinear(cell_array, 0, 1, (int)number_of_cells);
+
+	if (all_cells == NULL)
+		throw std::exception("Invalid CompoundRegion cell");
+
+	std::vector<CompoundRegionPtr> output(number_of_cells);
+	for (int i = 0; i < number_of_cells; i++)
+	{
+		try
+		{
+			//Find the elements of intrest and use them
+			output[i] = CompoundRegionPtr(new CompoundRegion());
+			*(output[i]) = load_region(all_cells[i]);
+		}
+		catch (...)
+		{
+			free(all_cells);
+			throw;
+		}
+	}
+
+
+	free(all_cells);
+	return output;
+}
+
+std::map<float, std::vector<CompoundRegionPtr>> load_region_stack_from_cell_array(matvar_t* cell_array)
+{
+	if (cell_array->data_type != MAT_T_CELL || cell_array->nbytes < 1)
+		throw std::exception("Invalid list of regions");
+
+	size_t number_of_cells = get_total_element_count(cell_array);
+
+	matvar_t **all_cells = Mat_VarGetCellsLinear(cell_array, 0, 1, (int)number_of_cells);
+
+	if (all_cells == NULL)
+		throw std::exception("Invalid list of regions");
+
+
+	std::map<float, std::vector<CompoundRegionPtr>> output;
+
+	for (int i = 0; i < number_of_cells; i++)
+	{
+		try
+		{
+			//load the scale. This will need to be a float or double. 
+			matvar_t* scale = get_struct_field(all_cells[i], "scale");
+			float scale_f;
+
+			if (scale->data_type == MAT_T_SINGLE)
+			{
+				scale_f = *((float*)scale->data);
+			}
+			else if (scale->data_type == MAT_T_DOUBLE)
+			{
+				scale_f = (float)*((double*)scale->data);
+			}
+			else
+			{
+				throw std::exception("Scale has unknown type");
+			}
+
+			matvar_t* list_of_atomic_superpixels = get_struct_field(all_cells[i], "label_map");
+			output[scale_f] = load_region_node_from_cell_array(list_of_atomic_superpixels);
+
+
+		}
+		catch (...)
+		{
+			free(all_cells);
+			throw;
+		}
+	}
+
+
+	free(all_cells);
+	return output;
+}
+
+
+
+/*
 This method loads a region from the tree format used in our file.
 */
-std::vector<HierarchicalRegionPtr> load_region_node_from_cell_array(matvar_t* cell_array)
+std::vector<HierarchicalRegionPtr> load_hierarchical_region_node_from_cell_array(matvar_t* cell_array)
 {
 	if (cell_array->data_type != MAT_T_CELL || cell_array->nbytes < 1)
 		throw std::exception("Invalid tree data structure");
@@ -175,7 +266,7 @@ std::vector<HierarchicalRegionPtr> load_region_node_from_cell_array(matvar_t* ce
 			matvar_t * children = get_struct_field(all_cells[i], "children", true);
 
 			if (children != NULL)
-				output[i]->children_node = load_region_node_from_cell_array(children);
+				output[i]->children_node = load_hierarchical_region_node_from_cell_array(children);
 		}
 		catch (...)
 		{

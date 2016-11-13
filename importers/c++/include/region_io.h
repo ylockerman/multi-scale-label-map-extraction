@@ -47,6 +47,7 @@ If you find it useful, please consider giving us credit or citing our paper.
 #include <utility>
 #include <memory>
 #include <string>
+#include <map>
 #include "region_map.h"
 
 //////////////////////////////////Internal Use//////////////////////////////////////////////////////
@@ -83,10 +84,19 @@ used to store a region when it is not part of a tree.
 */
 CompoundRegion load_region(matvar_t* struct_array);
 
+
+std::map<float, std::vector<CompoundRegionPtr>> load_region_stack_from_cell_array(matvar_t* cell_array);
+
+/*
+This method loads a region list format used in our file.
+*/
+std::vector<CompoundRegionPtr> load_region_node_from_cell_array(matvar_t* cell_array);
+
+
 /*
 Loads a HierarchicalRegion set from the tree format used in our file.
 */
-std::vector<HierarchicalRegionPtr> load_region_node_from_cell_array(matvar_t* cell_array);
+std::vector<HierarchicalRegionPtr> load_hierarchical_region_node_from_cell_array(matvar_t* cell_array);
 
 
 struct image_size {
@@ -119,20 +129,42 @@ AtomicRegionMap<ImageData> load_atomic_region_map(_mat_t* matfp, std::string ima
 	if (stride == 0)
 		stride = is.stride;
 
-	return AtomicRegionMap<ImageData>(std::valarray<ImageData>(is.rows*is.cols*stride), is.rows, is.cols, stride, atomic_regions);
+	return AtomicRegionMap<ImageData>(is.rows, is.cols, stride, atomic_regions);
+}
+
+template<typename ImageData>
+std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > load_region_map_stack(_mat_t* matfp, AtomicRegionMap<ImageData> atomic_region,
+																				std::string region_list_name)
+{
+	matvar_raii hslic_list_var = Mat_VarRead(matfp, region_list_name.c_str());
+
+	if (!hslic_list_var)
+		throw std::exception((std::string("File does not include ") + region_list_name + ".").c_str());
+
+	std::map<float, std::vector<CompoundRegionPtr>> region_stack = load_region_stack_from_cell_array(hslic_list_var);
+
+	std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > output_stack;
+
+	for (std::map<float, std::vector<CompoundRegionPtr>>::iterator it = region_stack.begin(); it != region_stack.end(); it++)
+	{
+		output_stack[it->first] = std::make_shared<CompoundRegionMap<ImageData>> (atomic_region, it->second);
+	}
+
+
+	return output_stack;
 }
 
 
 template<typename ImageData> 
 HierarchicalRegionMap<ImageData> load_hierarchical_region_map(_mat_t* matfp, std::shared_ptr<AtomicRegionMap<ImageData>> atomic_region,
-	std::string region_tree_name, std::valarray<ImageData> image_data = std::valarray<ImageData>(is.rows*is.cols*is.stride))
+	std::string region_tree_name)
 {
-	matvar_raii hslic_tree_var = Mat_VarRead(matfp, region_tree_name);
+	matvar_raii hslic_tree_var = Mat_VarRead(matfp, region_tree_name.c_str());
 
-	if (hslic_tree_var)
+	if (!hslic_tree_var)
 		throw std::exception((std::string("File does not include ") + region_tree_name + ".").c_str());
 
-	std::vector<HierarchicalRegionPtr> root_region_list = load_region_node_from_cell_array(hslic_tree_var, tree_root);
+	std::vector<HierarchicalRegionPtr> root_region_list = load_hierarchical_region_node_from_cell_array(hslic_tree_var);
 
 	return HierarchicalRegionMap<ImageData>(atomic_region, root_region_list);
 }
@@ -148,7 +180,7 @@ HierarchicalRegionMap<ImageData> load_hierarchical_region_map(_mat_t* matfp, con
 	if (!hslic_tree_var)
 		throw std::exception((std::string("File does not include ") + region_tree_name + ".").c_str());
 
-	std::vector<HierarchicalRegionPtr> root_region_list = load_region_node_from_cell_array(hslic_tree_var);
+	std::vector<HierarchicalRegionPtr> root_region_list = load_hierarchical_region_node_from_cell_array(hslic_tree_var);
 
 	return HierarchicalRegionMap<ImageData>(atomic_region, root_region_list);
 }

@@ -137,17 +137,18 @@ class AbstractRegionMap(collections.Mapping):
         """
         return None  
         
+    @abc.abstractmethod
+    def get_raw_data(self):
+        """
+           Outputs the content of this map as a numpy array
+        """
+        return None
+        
     def get_atomic_indexes(self,key):
         """
         Returns the a list of the atomic indexes that make up a  key of this map.
-        
-        This satisfies
-        map.get_atomic_indexes(key) == 
-            [ map.get_atomic_map().index_from_key(k) 
-                        for k in map.get_atomic_keys(key)  ]
         """
-        return [ self.get_atomic_map().index_from_key(k) 
-                        for k in self.get_atomic_keys(key)  ]    
+        return None   
 
 class AtomicRegionMap(AbstractRegionMap):
     """
@@ -392,6 +393,12 @@ class AtomicRegionMap(AbstractRegionMap):
         
         return image_out
         
+    def get_raw_data(self):
+        """
+           Outputs the content of this map as a numpy array
+        """
+        return np.copy(self.get_indicator_array())
+        
 class CompoundRegion(object):
     """
     A CompoundRegion represents a region built from combination of atomic 
@@ -569,6 +576,18 @@ class CompoundRegionMap(AbstractRegionMap):
                             
         return base_indexes
         
+    def get_raw_data(self):
+        """
+            Outputs the content of this map as a numpy array with the base
+            superpixel of each pixel and compound regions. 
+        """
+
+        raw_data = [ { 'list_of_atomic_superpixels' :np.copy( node.atomic_regions ) } 
+                         for node in self._region_set 
+                   ]
+
+        
+        return (self._atomic_region_map.get_raw_data(),raw_data)
         
 def build_compound_region(old_map,new_region_mapping):
     """
@@ -801,16 +820,16 @@ class HierarchicalRegionMap(CompoundRegionMap):
 
         def recusive_build_tree(list_of_nodes):      
             return [
-                         { 
-                          'scale' : node.scale,
-                          'list_of_atomic_superpixels' : node.atomic_regions,
-                          'children' : recusive_build_tree(node.children)
-                         } 
+                     { 
+                        'scale' : node.scale,
+                        'list_of_atomic_superpixels' : np.copy(node.atomic_regions),
+                        'children' : recusive_build_tree(node.children)
+                     } 
                          for node in list_of_nodes 
                    ]
 
         
-        return (np.copy(self._atomic_region_map.get_indicator_array()), 
+        return (self._atomic_region_map.get_raw_data(), 
                     recusive_build_tree(self._root_table))
         
 def hierarchical_region_map_from_stack(stack_dict):

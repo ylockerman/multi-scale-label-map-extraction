@@ -38,19 +38,19 @@ If you find it useful, please consider giving us credit or citing our paper.
 
 @author : Yitzchak David Lockerman
 
-This is a simple program to demonstrate loading of HSLIC data. Given a label-map file and a scale 
+This is a simple program to demonstrate loading of HSLIC data. Given a label-map file and a scale
 it will output a ppm file with each superpixel given a random color.
 
-Usage: 
-      HSLIC_demo input_file.mat output_file.ppm scale
+Usage:
+HSLIC_demo input_file.mat output_file.ppm scale
 Where:
-      input_file.mat is a label-map file
-      output_file.ppm is the location to store the resulting image
-      scale is the scale in pixels of the superpixels.
+input_file.mat is a label-map file
+output_file.ppm is the location to store the resulting image
+scale is the scale in pixels of the superpixels.
 
 */
 
-#include "HSLIC.h"
+#include "label_map.h"
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -63,13 +63,15 @@ typedef unsigned char byte;
 int main(int argc, char* argv[])
 {
 	//Print somthing of a useful message if we get an exception
-	try 
+	try
 	{
 		//If we don't have enough args, give the usage infomation 
-		if (argc < 3)
+		if (argc != 2)
 		{
-			cout << "Usage: " << argv[0] << " input_file.mat output_file.ppm scale" << endl
-				<< "Will output a ppm file which indicates the superpixels at a given scale." << endl
+			cout << "Usage: " << argv[0] << " input_file.mat output_file_%f.ppm" << endl
+				<< "Will output a ppm file with the label map at each scale." << endl
+				<< "If --tree is included the map will form a hierarchal tree, otherwise the" << endl
+				<< "labels at each level will be independent." << endl
 				<< "The color will be chosen to make the image a little easier to read. However," << endl
 				<< "note that the colors are arbitrary and useful for visualization only. " << endl;
 			return 1;
@@ -78,11 +80,15 @@ int main(int argc, char* argv[])
 		//Load the values from the arguments
 		string filename_in = argv[1];
 		string filename_out = argv[2];
-		float scale = stof(argv[3]);
+
+		size_t index_of_template = filename_out.find("%f");
+		if (index_of_template == string::npos) {
+			cout << "The output file must include the location template %f" << endl;
+		}
 
 		//Load the HSLIC file
 		//Create a map to a blank image
-		HierarchicalRegionMap<byte> hslic = load_HLIC<byte>(filename_in, 3);
+		HierarchicalRegionMap<byte> hslic = load_hierarchical_label_map<byte>(filename_in, 3);
 
 		//Get the array of superpixels at the scale of interest.
 		CompoundRegionMap<byte> superpixels = hslic.get_single_scale_map(scale);
@@ -102,20 +108,20 @@ int main(int argc, char* argv[])
 
 		//width height and then max color
 		output << hslic.get_cols() << " " << hslic.get_rows() << " 255" << endl;
-		
+
 		//PPM output each color in row major order. We format it in rows to make it easer to read
-		for (int r = 0; r < hslic.get_rows(); r++) 
+		for (int r = 0; r < hslic.get_rows(); r++)
 		{
 			for (int c = 0; c < hslic.get_cols(); c++)
 			{
-				const valarray<byte>& color = superpixels.value_at(r,c);
+				const valarray<byte>& color = superpixels.value_at(r, c);
 				output << (int)color[0] << " " << (int)color[1] << " " << (int)color[2] << " ";
 			}
 			output << endl;
 		}
 
 		output.close();
-		
+
 	}
 	catch (exception e)
 	{

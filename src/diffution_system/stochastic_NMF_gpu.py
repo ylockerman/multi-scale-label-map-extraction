@@ -623,7 +623,7 @@ def stochastic_NMF_gradient_descent(ctx,diff_mat, r,steps=1, max_itter = 50000,
         sync_queues()
       
         error_calulator(__T(F),G,__T(left_power),right_power,FTF,GGT,error_temp_stor)
-        return float(cl_array.sum(error_temp_stor,np.float32,queue_gamma_F).get(queue_gamma_F))
+        return float(cl_array.sum(error_temp_stor,np.dtype(np.float32),queue_gamma_F).get(queue_gamma_F))
 
         
 

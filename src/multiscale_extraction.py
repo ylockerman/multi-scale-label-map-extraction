@@ -564,14 +564,9 @@ if __name__ == '__main__':
     #Create a raw list of superpixels for each texture on each level
     raw_texture_list = []
     for scale,label_at_scale in label_map_dict.iteritems():
-        texture_makeup_list = [
-                                 label_at_scale.get_atomic_keys(key)
-                                                  for key in label_at_scale
-                              ] 
-
         scale_texture_data_dict = { 
                             'scale' : scale,
-                            'list_of_atomic_superpixels' : texture_makeup_list
+                            'label_map' : label_at_scale.get_raw_data()[1]
                            };
         scale_texture_data_dict.update(aditinal_info_dict[scale])
         

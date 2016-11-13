@@ -59,6 +59,7 @@ class AbstractRegionMap
 public:
 	typedef typename ImageData_t ImageData;
 	typedef typename RegionKey_t RegionKey;
+	typedef typename AbstractRegionMap AbstractRegionMap_type;
 	typedef typename AtomicRegionMap_t AtomicRegionMap_type;
 	typedef typename AtomicRegionKey_t AtomicRegionKey;
 	typedef typename const_iterator_t const_iterator;
@@ -91,10 +92,13 @@ public:
 	virtual const RegionKey& key_from_index(size_t index) const = 0;
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
-	virtual std::shared_ptr<AbstractRegionMap> copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data) const = 0;
+	virtual std::shared_ptr<AbstractRegionMap> copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data, size_t stride = 0) const = 0;
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
-	virtual const std::shared_ptr<AbstractRegionMap> copy_map_for_image(const std::valarray<ImageData>& data) const = 0;
+	virtual const std::shared_ptr<AbstractRegionMap> copy_map_for_image(const std::valarray<ImageData>& data, size_t stride = 0) const = 0;
+
+	/*Returns a new tile map with the same properyes for a new image*/
+	virtual const std::shared_ptr<AbstractRegionMap> copy_map_for_new_image(size_t stride = 0) const = 0;
 
 	/*Returns the keyset*/
 	virtual const std::vector<RegionKey>& get_key_set() = 0;
@@ -239,6 +243,10 @@ public:
 		: AtomicRegionMap(std::shared_ptr< valarray<ImageData> >(new valarray<ImageData>(image)), rows,  cols, stride, cluster_index)
 	{}
 
+	AtomicRegionMap(size_t rows, size_t cols, size_t stride, const std::valarray<size_t>& cluster_index) 
+		: AtomicRegionMap(std::valarray<ImageData>(rows*cols*stride), rows, cols, stride,cluster_index)
+	{}
+
 	/*Return a tile based on the key*/
 	std::indirect_array<ImageData> operator[](const RegionKey& key)
 	{
@@ -299,28 +307,51 @@ public:
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
 	template <typename ImageData_t>
-	std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap, AtomicRegionKey, const_iterator> > copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data) const
+	std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap, AtomicRegionKey, const_iterator> > 
+			copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data, size_t stride = 0) const
 	{
-		return std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap, AtomicRegionKey, const_iterator> >(new AtomicRegionMap<ImageData_t>(data, rows, cols, stride, cluster_index));
+		if (stride == 0) stride = this->stride;
+
+		return std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap, AtomicRegionKey, const_iterator> >
+															(new AtomicRegionMap<ImageData_t>(data, rows, cols, stride, cluster_index));
 	}
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
 	template <typename ImageData_t>
-	const std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap, AtomicRegionKey, const_iterator> > copy_map_for_image(const std::valarray<ImageData>& data) const
+	const std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap, AtomicRegionKey, const_iterator> > 
+		copy_map_for_image(const std::valarray<ImageData>& data, size_t stride = 0) const
 	{
-		return std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap, AtomicRegionKey, const_iterator> >(new AtomicRegionMap<ImageData_t>(data, rows, cols, stride, cluster_index));
+		if (stride == 0) stride = this->stride;
+
+		return std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap, AtomicRegionKey, const_iterator> >
+																(new AtomicRegionMap<ImageData_t>(data, rows, cols, stride, cluster_index));
 	}
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
-	std::shared_ptr<AbstractRegionMap> copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data) const
+	std::shared_ptr<AbstractRegionMap> copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data, size_t stride = 0) const
 	{
-		return copy_map_for_image<ImageData>(data);
+		return copy_map_for_image<ImageData>(data, stride);
 	}
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
-	const std::shared_ptr<AbstractRegionMap> copy_map_for_image(const std::valarray<ImageData>& data) const
+	const std::shared_ptr<AbstractRegionMap> copy_map_for_image(const std::valarray<ImageData>& data, size_t stride = 0) const
 	{
-		return copy_map_for_image<ImageData>(data);
+		return copy_map_for_image<ImageData>(data, stride);
+	}
+
+	/*Returns a new tile map with the same properyes for a new image*/
+	template <typename ImageData_t>
+	const std::shared_ptr<AbstractRegionMap> copy_map_for_new_image(size_t stride = 0) const
+	{
+		if (stride == 0) stride = this->stride;
+		return copy_map_for_image<ImageData_t>(std::valarray<ImageData_t>(rows*cols*stride), stride);
+	}
+
+	/*Returns a new tile map with the same properyes for a new image*/
+	const std::shared_ptr<AbstractRegionMap> copy_map_for_new_image(size_t stride = 0) const
+	{
+		if (stride == 0) stride = this->stride;
+		return copy_map_for_image<ImageData>(std::valarray<ImageData>(rows*cols*stride), stride);
 	}
 
 	/*Returns the keyset*/
@@ -429,15 +460,7 @@ protected:
 	{}
 
 
-	CompoundRegionMap(AtomicRegionMap_type arm, const std::vector< CompoundRegionPtr >& regions)
-		: atomic_region_map(arm), key_set(regions.size())
-	{
-		//Calculate a lookup table for each region. This allows us to access them in constant time. 
-		for (size_t indx = 0; indx < regions.size(); indx++)
-		{
-			key_set[indx] = std::make_pair(indx, regions[indx]);
-		}
-	}
+
 
 public:
 	typedef typename ImageData ImageData;
@@ -456,6 +479,15 @@ public:
 		}
 	}
 
+	CompoundRegionMap(AtomicRegionMap_type arm, const std::vector< CompoundRegionPtr >& regions)
+		: atomic_region_map(arm), key_set(regions.size())
+	{
+		//Calculate a lookup table for each region. This allows us to access them in constant time. 
+		for (size_t indx = 0; indx < regions.size(); indx++)
+		{
+			key_set[indx] = std::make_pair(indx, CompoundRegionPtr(new CompoundRegion( *regions[indx] ) ) );
+		}
+	}
 
 	/*Return a tile based on the key*/
 	std::indirect_array<ImageData> operator[](const RegionKey& key)
@@ -530,31 +562,45 @@ public:
 	/*Returns a new tile map with the same properyes for a diffrent image*/
 	template <typename ImageData_t>
 	std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> >
-								copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data) const
+								copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data, size_t stride = 0) const
 	{
 		return std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> >
-			(new CompoundRegionMap<ImageData_t>(atomic_region_map.copy_map_for_image<ImageData_t>(data)->get_atomic_map(), key_set));
+			(new CompoundRegionMap<ImageData_t>(atomic_region_map.copy_map_for_image<ImageData_t>(data, stride)->get_atomic_map(), key_set));
 	}
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
 	template <typename ImageData_t>
 	const std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> >
-													copy_map_for_image(const std::valarray<ImageData>& data) const
+													copy_map_for_image(const std::valarray<ImageData>& data, size_t stride = 0) const
 	{
 		return std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> >
-			(new CompoundRegionMap<ImageData_t>(atomic_region_map.copy_map_for_image<ImageData_t>(data)->get_atomic_map(), key_set));
+			(new CompoundRegionMap<ImageData_t>(atomic_region_map.copy_map_for_image<ImageData_t>(data, stride)->get_atomic_map(), key_set));
 	}
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
-	std::shared_ptr<AbstractRegionMap<ImageData, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> > copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data) const
+	std::shared_ptr<AbstractRegionMap_type > copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data, size_t stride = 0) const
 	{
-		return copy_map_for_image<ImageData>(data);
+		return copy_map_for_image<ImageData>(data, stride);
 	}
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
-	const std::shared_ptr<AbstractRegionMap<ImageData, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> > copy_map_for_image(const std::valarray<ImageData>& data) const
+	const std::shared_ptr<AbstractRegionMap_type > copy_map_for_image(const std::valarray<ImageData>& data, size_t stride = 0) const
 	{
-		return copy_map_for_image<ImageData>(data);
+		return copy_map_for_image<ImageData>(data, stride);
+	}
+
+	/*Returns a new tile map with the same properyes for a new image*/
+	template <typename ImageData_t>
+	const std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> > copy_map_for_new_image(size_t stride = 0) const
+	{
+		return std::shared_ptr<AbstractRegionMap<typename ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> >
+			(new CompoundRegionMap<typename ImageData_t>(atomic_region_map.copy_map_for_new_image<typename ImageData_t>(stride)->get_atomic_map(), key_set));
+	}
+
+	/*Returns a new tile map with the same properyes for a new image*/
+	const std::shared_ptr<AbstractRegionMap> copy_map_for_new_image(size_t stride = 0) const
+	{
+		return this->copy_map_for_new_image<ImageData>(stride);
 	}
 
 	/*Returns the keyset*/
@@ -755,9 +801,9 @@ public:
 	/*Returns a new tile map with the same properyes for a diffrent image*/
 	template <typename ImageData_t>
 	std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> >
-								copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data) const
+								copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data, size_t stride = 0) const
 	{
-		AtomicRegionMap_type am = atomic_region_map.copy_map_for_image<ImageData_t>(data)->get_atomic_map();
+		AtomicRegionMap_type am = atomic_region_map.copy_map_for_image<ImageData_t>(data, stride)->get_atomic_map();
 		return std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> >
 																				(new HierarchicalRegionMap<ImageData_t>(am, root_table));
 	}
@@ -765,23 +811,38 @@ public:
 	/*Returns a new tile map with the same properyes for a diffrent image*/
 	template <typename ImageData_t>
 	const std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> >
-											copy_map_for_image(const std::valarray<ImageData>& data) const
+											copy_map_for_image(const std::valarray<ImageData>& data, size_t stride = 0) const
 	{
-		AtomicRegionMap_type am = atomic_region_map.copy_map_for_image<ImageData_t>(data)->get_atomic_map();
+		AtomicRegionMap_type am = atomic_region_map.copy_map_for_image<ImageData_t>(data, stride)->get_atomic_map();
 		return std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> > 
 																				(new HierarchicalRegionMap<ImageData_t>(am, root_table));
 	}
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
-	std::shared_ptr<AbstractRegionMap> copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data) const
+	std::shared_ptr<AbstractRegionMap> copy_map_for_image(std::shared_ptr<std::valarray<ImageData>> data, size_t stride = 0) const
 	{
-		return copy_map_for_image<ImageData>(data);
+		return copy_map_for_image<ImageData>(data, stride);
 	}
 
 	/*Returns a new tile map with the same properyes for a diffrent image*/
-	const std::shared_ptr<AbstractRegionMap> copy_map_for_image(const std::valarray<ImageData>& data) const
+	const std::shared_ptr<AbstractRegionMap> copy_map_for_image(const std::valarray<ImageData>& data, size_t stride = 0) const
 	{
-		return copy_map_for_image<ImageData>(data);
+		return copy_map_for_image<ImageData>(data, stride);
+	}
+
+	/*Returns a new tile map with the same properyes for a new image*/
+	template <typename ImageData_t>
+	const std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> > copy_map_for_new_image(size_t stride = 0) const
+	{
+		AtomicRegionMap_type am = atomic_region_map.copy_map_for_new_image<ImageData_t>(stride)->get_atomic_map();
+		return std::shared_ptr<AbstractRegionMap<ImageData_t, RegionKey, AtomicRegionMap_type, AtomicRegionKey, const_iterator> >
+			(new HierarchicalRegionMap<ImageData_t>(am, root_table));
+	}
+
+	/*Returns a new tile map with the same properyes for a new image*/
+	const std::shared_ptr<AbstractRegionMap > copy_map_for_new_image(size_t stride = 0) const
+	{
+		return copy_map_for_new_image<ImageData>(stride);
 	}
 
 	CompoundRegionMap<ImageData_t> get_single_scale_map(scale_type scale)

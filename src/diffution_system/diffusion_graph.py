@@ -204,7 +204,7 @@ def knn_graph_to_diffution_matrix(graph,smothing_factor, norm_type = 'global',no
     """
         Given a knn graph, create the diffution matrix
     """
-    print ("Building a fiddution matrix with a smothing factor of %s." % 
+    print ("Building a diffusion matrix with a smothing factor of %s." % 
                                                                 (smothing_factor));
 
     dist_mat, _ = knn_graph_to_weight_matrix(graph,smothing_factor,norm_type,normalizer_in)
