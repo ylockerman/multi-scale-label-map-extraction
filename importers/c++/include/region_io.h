@@ -79,13 +79,20 @@ public:
 };
 
 /*
+Loads extra data that may of included in an array.
+*/
+void load_extra_data(matvar_t * struct_array, ExtraDataMap& out, std::string ignore_names[], int number_of_ignore_names);
+
+/*
 Loads a CompoundRegion from a struct_array. This is the fomat
 used to store a region when it is not part of a tree.
 */
-CompoundRegion load_region(matvar_t* struct_array);
+CompoundRegion load_region(matvar_t* struct_array, bool is_hierarchical);
 
-
-std::map<float, std::vector<CompoundRegionPtr>> load_region_stack_from_cell_array(matvar_t* cell_array);
+/*
+Loads a stack of compound region maps from a matlab variable.
+*/
+std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > load_region_stack_from_cell_array(matvar_t* cell_array);
 
 /*
 This method loads a region list format used in our file.
@@ -141,13 +148,13 @@ std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > load_region_ma
 	if (!hslic_list_var)
 		throw std::exception((std::string("File does not include ") + region_list_name + ".").c_str());
 
-	std::map<float, std::vector<CompoundRegionPtr>> region_stack = load_region_stack_from_cell_array(hslic_list_var);
+	std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > region_stack = load_region_stack_from_cell_array(hslic_list_var);
 
 	std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > output_stack;
 
-	for (std::map<float, std::vector<CompoundRegionPtr>>::iterator it = region_stack.begin(); it != region_stack.end(); it++)
+	for (std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> >::iterator it = region_stack.begin(); it != region_stack.end(); it++)
 	{
-		output_stack[it->first] = std::make_shared<CompoundRegionMap<ImageData>> (atomic_region, it->second);
+		output_stack[it->first] = std::make_shared<CompoundRegionMap<ImageData>> (atomic_region, it->second.first, it->second.second);
 	}
 
 

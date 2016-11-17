@@ -106,14 +106,39 @@ int main(int argc, char* argv[])
 			std::vector<float> all_scales = hlabels.get_scales();
 
 			for (float scale : all_scales)
+			{
+				cout << "Saving scale " << scale << endl;
 				output_PPM(filename_out.replace(index_of_template, 2, to_string(scale)), hlabels.get_single_scale_map(scale));
+			}
 		}
 		else
 		{
 			std::map<float, std::shared_ptr< CompoundRegionMap<color> > > label_stack =  load_label_map_stack<color>(filename_in, 3);
 
-			for(const std::pair<float, std::shared_ptr< CompoundRegionMap<color> > >& elm : label_stack )
+			for (const std::pair<float, std::shared_ptr< CompoundRegionMap<color> > >& elm : label_stack)
+			{
+				cout << "Saving scale:" << elm.first << endl;
 				output_PPM(filename_out.replace(index_of_template, 2, to_string(elm.first)), *elm.second);
+
+				//Demo of using extra data
+				if (elm.second->has_extra_data("F"))
+				{
+					ExtraData F = elm.second->get_extra_data("F");
+					cout << "	Has F matrix:";
+					for (size_t i = 0; i < F.size(); i++)
+						cout << F[i] << " ";
+					cout << endl;
+				}
+
+				if (elm.second->has_extra_data("G"))
+				{
+					ExtraData G = elm.second->get_extra_data("G");
+					cout << "	Has G matrix:";
+					for (size_t i = 0; i < G.size(); i++)
+						cout << G[i] << " ";
+					cout << endl;
+				}
+			}
 		}
 	}
 	catch (exception e)
@@ -125,5 +150,7 @@ int main(int argc, char* argv[])
 		cerr << "Error encounted!";
 	}
 
+	char c;
+	cin >> c;
 
 }

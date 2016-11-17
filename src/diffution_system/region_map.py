@@ -138,9 +138,16 @@ class AbstractRegionMap(collections.Mapping):
         return None  
         
     @abc.abstractmethod
-    def get_raw_data(self):
+    def get_raw_data(self, func = None):
         """
-           Outputs the content of this map as a numpy array
+           Outputs the content of this map as a combination of python 
+           primitives and numpy arrays. 
+        
+            If func is supplied, it should be of the form
+                extra_info=func(map,key) 
+                
+            and will be passed this map, and the key being processed and return 
+            extra info to be included in the raw data. 
         """
         return None
         

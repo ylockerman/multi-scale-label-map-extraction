@@ -56,6 +56,54 @@ size_t get_total_element_count(matvar_t* arry)
 }
 
 
+template<typename NumericType>
+void load_numeric_array(matvar_t * arr,std::string name, std::valarray<NumericType>& out)
+{
+	size_t noe = get_total_element_count(arr);
+	out = std::valarray<NumericType>(noe);
+
+	if (arr->data_type == MAT_T_SINGLE)
+	{
+		std::copy((float*)arr->data, (float*)arr->data+noe,std::begin(out));
+	}
+	else if (arr->data_type == MAT_T_DOUBLE)
+	{
+		std::copy((double*)arr->data, (double*)arr->data + noe, std::begin(out));
+	}
+	else if (arr->data_type == MAT_T_INT32)
+	{
+		std::copy((int*)arr->data, (int*)arr->data + noe, std::begin(out));
+	}
+	else if (arr->data_type == MAT_T_INT64)
+	{
+		std::copy((int64_t*)arr->data, (int64_t*)arr->data + noe, std::begin(out));
+	}
+	else
+	{
+		throw std::exception( (name + " has unknown type").c_str() );
+	}
+
+
+}
+
+/*
+	Loads extra data that may of included in an array.  
+*/
+void load_extra_data(matvar_t * struct_array, ExtraDataMap& out, std::string ignore_names[], int number_of_ignore_names)
+{
+	//Load any extra data we may have
+	size_t number_of_fields = Mat_VarGetNumberOfFields(struct_array);
+	char * const * feild_names = Mat_VarGetStructFieldnames(struct_array);
+
+	for (size_t i = 0; i < number_of_fields; i++)
+	{
+		std::string field_name(feild_names[i]);
+
+		std::string* ignore_names_end = ignore_names + number_of_ignore_names;
+		if (std::find(ignore_names, ignore_names_end, field_name) == ignore_names_end)
+			load_numeric_array(Mat_VarGetStructFieldByIndex(struct_array, i, 0), field_name, out[field_name]);
+	}
+}
 
 matvar_raii::matvar_raii(matvar_t* ptr) : std::unique_ptr<matvar_t, void (*)(matvar_t *)>(ptr, Mat_VarFree)
 {}
@@ -97,7 +145,7 @@ matvar_t* get_struct_field(matvar_t* struct_array, std::string name, bool option
 /*
 Loads a region (Superpixel or label) from a struct_array 
 */
-CompoundRegion load_region(matvar_t* struct_array)
+CompoundRegion load_region(matvar_t* struct_array, bool is_hierarchical)
 {
 	if (struct_array->data_type != MAT_T_STRUCT )
 	{
@@ -128,6 +176,17 @@ CompoundRegion load_region(matvar_t* struct_array)
 		throw std::exception("list_of_atomic_superpixels has unknown type");
 	}
 
+	if (is_hierarchical)
+	{
+		std::string ignore_names[] = { "list_of_atomic_superpixels", "children" , "scale" };
+		load_extra_data(struct_array, out.extra_data, ignore_names, 3);
+	}
+	else
+	{
+		std::string ignore_names[] = { "list_of_atomic_superpixels" };
+		load_extra_data(struct_array, out.extra_data, ignore_names, 1);
+	}
+
 	return out;
 }
 
@@ -153,7 +212,7 @@ std::vector<CompoundRegionPtr> load_region_node_from_cell_array(matvar_t* cell_a
 		{
 			//Find the elements of intrest and use them
 			output[i] = CompoundRegionPtr(new CompoundRegion());
-			*(output[i]) = load_region(all_cells[i]);
+			*(output[i]) = load_region(all_cells[i],false);
 		}
 		catch (...)
 		{
@@ -167,7 +226,10 @@ std::vector<CompoundRegionPtr> load_region_node_from_cell_array(matvar_t* cell_a
 	return output;
 }
 
-std::map<float, std::vector<CompoundRegionPtr>> load_region_stack_from_cell_array(matvar_t* cell_array)
+/*
+Loads a stack of compound region maps from a matlab variable.
+*/
+std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > load_region_stack_from_cell_array(matvar_t* cell_array)
 {
 	if (cell_array->data_type != MAT_T_CELL || cell_array->nbytes < 1)
 		throw std::exception("Invalid list of regions");
@@ -180,7 +242,7 @@ std::map<float, std::vector<CompoundRegionPtr>> load_region_stack_from_cell_arra
 		throw std::exception("Invalid list of regions");
 
 
-	std::map<float, std::vector<CompoundRegionPtr>> output;
+	std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> >  output;
 
 	for (int i = 0; i < number_of_cells; i++)
 	{
@@ -204,8 +266,10 @@ std::map<float, std::vector<CompoundRegionPtr>> load_region_stack_from_cell_arra
 			}
 
 			matvar_t* list_of_atomic_superpixels = get_struct_field(all_cells[i], "label_map");
-			output[scale_f] = load_region_node_from_cell_array(list_of_atomic_superpixels);
+			output[scale_f].first  = load_region_node_from_cell_array(list_of_atomic_superpixels);
 
+			std::string ignore_names[] = { std::string("scale"),std::string("label_map") };
+			load_extra_data(all_cells[i], output[scale_f].second, ignore_names, 2);
 
 		}
 		catch (...)
@@ -244,7 +308,7 @@ std::vector<HierarchicalRegionPtr> load_hierarchical_region_node_from_cell_array
 		{
 			//Find the elements of intrest and use them
 			output[i] = HierarchicalRegionPtr(new HierarchicalRegion());
-			(*(std::dynamic_pointer_cast<CompoundRegion>(output[i]))) = load_region(all_cells[i]);
+			(*(std::dynamic_pointer_cast<CompoundRegion>(output[i]))) = load_region(all_cells[i],true);
 
 			//load the scale. This will need to be a float or double. 
 			matvar_t* scale = get_struct_field(all_cells[i], "scale");

@@ -51,6 +51,9 @@ If you find it useful, please consider giving us credit or citing our paper.
 #include <map>
 #include <queue>
 
+typedef std::valarray<float> ExtraData;
+typedef std::map<std::string, ExtraData > ExtraDataMap;
+
 template <typename ImageData_t, typename RegionKey_t, 
 	typename AtomicRegionMap_t, typename AtomicRegionKey_t,
 			typename const_iterator_t>
@@ -139,7 +142,25 @@ public:
 	*/
 	virtual const std::slice_array<ImageData> value_at(int row, int col) const = 0;
 
+	/*
+	Checks to see if the map has extra data given by the name name.
+	*/
+	virtual bool has_extra_data(std::string name) const = 0;
 
+	/*
+	Returns the extra data of a map (if it is available). Otherwise, throws an exception.
+	*/
+	virtual const ExtraData& get_extra_data(std::string name) const = 0;
+
+	/*
+	Checks to see if a given key has extra data given by the name name. 
+	*/
+	virtual bool has_extra_data(std::string name, const RegionKey& key) const = 0;
+
+	/*
+	Returns the extra data of a key (if it is available). Otherwise, throws an exception.
+	*/
+	virtual const ExtraData& get_extra_data(std::string name, const RegionKey& key) const = 0;
 };
 
 template <typename T>
@@ -204,8 +225,14 @@ protected:
 	/*Which region each image element belongs to*/
 	std::valarray<size_t> cluster_index;
 
-	//A lookup table for each region.
+	/*A lookup table for each region.*/
 	std::vector< RegionKey > key_set;
+
+	/*Extra data for the map*/
+	ExtraDataMap extra_data;
+
+	/*An array of extra data. Stores the data for each key index*/
+	std::vector< ExtraDataMap > region_extra_data;
 
 public:
 	typedef typename ImageData ImageData;
@@ -214,8 +241,11 @@ public:
 	typedef typename AtomicRegionKey AtomicRegionKey;
 	typedef typename const_iterator const_iterator;
 
-	AtomicRegionMap(std::shared_ptr< std::valarray<ImageData> > image, size_t rows, size_t cols, size_t stride, const std::valarray<size_t>& cluster_index)
-		: image(image), rows(rows), cols(cols), stride(stride), cluster_index(cluster_index)
+	AtomicRegionMap(std::shared_ptr< std::valarray<ImageData> > image, size_t rows, size_t cols, size_t stride, 
+						const std::valarray<size_t>& cluster_index, 
+						const ExtraDataMap& edm = ExtraDataMap(),
+						const std::vector< ExtraDataMap >& redm = std::vector< ExtraDataMap >() )
+		: image(image), rows(rows), cols(cols), stride(stride), cluster_index(cluster_index), extra_data(edm), region_extra_data(redm)
 	{
 		size_t number_of_regions = cluster_index.max() + 1;
 		key_set.resize(number_of_regions);
@@ -239,12 +269,16 @@ public:
 		}
 	}
 
-	AtomicRegionMap(const std::valarray<ImageData>& image, size_t rows, size_t cols, size_t stride, const std::valarray<size_t>& cluster_index)
-		: AtomicRegionMap(std::shared_ptr< valarray<ImageData> >(new valarray<ImageData>(image)), rows,  cols, stride, cluster_index)
+	AtomicRegionMap(const std::valarray<ImageData>& image, size_t rows, size_t cols, size_t stride, 
+						const std::valarray<size_t>& cluster_index, 
+						const ExtraDataMap& edm = ExtraDataMap(),
+						const std::vector< ExtraDataMap >& redm = std::vector< ExtraDataMap >())
+		: AtomicRegionMap(std::shared_ptr< valarray<ImageData> >(new valarray<ImageData>(image)), rows,  cols, stride, cluster_index, edm, redm)
 	{}
 
-	AtomicRegionMap(size_t rows, size_t cols, size_t stride, const std::valarray<size_t>& cluster_index) 
-		: AtomicRegionMap(std::valarray<ImageData>(rows*cols*stride), rows, cols, stride,cluster_index)
+	AtomicRegionMap(size_t rows, size_t cols, size_t stride, const std::valarray<size_t>& cluster_index,
+					  const ExtraDataMap& edm = ExtraDataMap(), const std::vector< ExtraDataMap >& redm = std::vector< ExtraDataMap >())
+		: AtomicRegionMap(std::valarray<ImageData>(rows*cols*stride), rows, cols, stride,cluster_index, edm, redm)
 	{}
 
 	/*Return a tile based on the key*/
@@ -414,6 +448,53 @@ public:
 	{
 		return (*image)[std::slice(stride*(col + row*cols), stride, 1)];
 	}
+
+	/*
+	Checks to see if the map has extra data given by the name name.
+	*/
+	bool has_extra_data(std::string name) const
+	{
+			return extra_data.find(name) != extra_data.end();
+	}
+
+	/*
+	Returns the extra data of a map (if it is available). Otherwise, throws an exception.
+	*/
+	const ExtraData& get_extra_data(std::string name) const
+	{
+		ExtraDataMap::const_iterator it = extra_data.find(name);
+
+		if (it == extra_data.end())
+			throw std::exception(("Map does not contain extra data: " + name).c_str());
+
+		return it->second;
+	}
+
+	/*
+	Checks to see if a given key has extra data given by the name name.
+	*/
+	bool has_extra_data(std::string name, const RegionKey& key) const
+	{
+		return key.first < region_extra_data.size() &&
+			region_extra_data[key.first].find(name) != region_extra_data[key.first].end();
+	}
+
+	/*
+	Returns the extra data (if it is available). Otherwise, throws an exception.
+	*/
+	const ExtraData& get_extra_data(std::string name, const RegionKey& key) const
+	{
+		if (key.first > region_extra_data.size())
+			throw std::exception("No extra data for key");
+
+		ExtraDataMap::const_iterator it= region_extra_data[key.first].find(name);
+
+		if (it == region_extra_data[key.first].end())
+			throw std::exception(("Key does not contain extra data: " + name).c_str());
+
+		return it->second;
+	}
+
 };
 
 
@@ -432,7 +513,10 @@ struct CompoundRegion
 	*/
 	std::vector<size_t> atomic_superpixels;
 
-
+	/*
+	Any extra data we may have about this region.
+	*/
+	ExtraDataMap extra_data;
 };
 
 typedef std::shared_ptr<CompoundRegion> CompoundRegionPtr;
@@ -454,9 +538,12 @@ protected:
 
 	std::vector< RegionKey > key_set;
 
+	/*Extra data for the map*/
+	ExtraDataMap extra_data;
 
-	CompoundRegionMap(AtomicRegionMap_type arm, const std::vector< RegionKey >& keys)
-		: atomic_region_map(arm), key_set(keys.begin(), keys.end())
+	CompoundRegionMap(AtomicRegionMap_type arm, const std::vector< RegionKey >& keys,
+						const ExtraDataMap& edm = ExtraDataMap() )
+		: atomic_region_map(arm), key_set(keys.begin(), keys.end()), extra_data(edm)
 	{}
 
 
@@ -469,8 +556,9 @@ public:
 	typedef typename AtomicRegionKey AtomicRegionKey;
 	typedef typename const_iterator const_iterator;
 
-	CompoundRegionMap(AtomicRegionMap_type arm, const std::vector< CompoundRegion >& regions)
-		: atomic_region_map(arm), key_set(regions.size())
+	CompoundRegionMap(AtomicRegionMap_type arm, const std::vector< CompoundRegion >& regions,
+		const ExtraDataMap& edm = ExtraDataMap() )
+		: atomic_region_map(arm), key_set(regions.size()), extra_data(edm)
 	{
 		//Calculate a lookup table for each region. This allows us to access them in constant time. 
 		for (size_t indx = 0; indx < regions.size(); indx++)
@@ -479,8 +567,9 @@ public:
 		}
 	}
 
-	CompoundRegionMap(AtomicRegionMap_type arm, const std::vector< CompoundRegionPtr >& regions)
-		: atomic_region_map(arm), key_set(regions.size())
+	CompoundRegionMap(AtomicRegionMap_type arm, const std::vector< CompoundRegionPtr >& regions,
+		const ExtraDataMap& edm = ExtraDataMap() )
+		: atomic_region_map(arm), key_set(regions.size()), extra_data(edm)
 	{
 		//Calculate a lookup table for each region. This allows us to access them in constant time. 
 		for (size_t indx = 0; indx < regions.size(); indx++)
@@ -670,6 +759,49 @@ public:
 		return atomic_region_map.value_at(row, col);
 	}
 
+	/*
+	Checks to see if the map has extra data given by the name name.
+	*/
+	bool has_extra_data(std::string name) const
+	{
+		return extra_data.find(name) != extra_data.end();
+	}
+
+	/*
+	Returns the extra data of a map (if it is available). Otherwise, throws an exception.
+	*/
+	const ExtraData& get_extra_data(std::string name) const
+	{
+		ExtraDataMap::const_iterator it = extra_data.find(name);
+
+		if (it == extra_data.end())
+			throw std::exception(("Map does not contain extra data: " + name).c_str());
+
+		return it->second;
+	}
+
+	/*
+	Checks to see if a given key has extra data given by the name name.
+	*/
+	bool has_extra_data(std::string name, const RegionKey& key) const
+	{
+		return key.second->extra_data.find(name) != key.second->extra_data.end();
+	}
+
+	/*
+	Returns the extra data (if it is available). Otherwise, throws an exception.
+	*/
+	const ExtraData& get_extra_data(std::string name, const RegionKey& key) const
+	{
+		ExtraDataMap::const_iterator it = key.second->extra_data.find(name);
+
+		if (it == key.second->extra_data.end())
+			throw std::exception(("Key does not contain extra data: " + name).c_str());
+
+			return it->second;
+	}
+
+
 	template <typename ImageData_t> friend  class HierarchicalRegionMap;
 };
 
@@ -759,8 +891,9 @@ public:
 	typedef typename const_iterator const_iterator;
 
 
-	HierarchicalRegionMap(AtomicRegionMap_type arm, const std::vector< HierarchicalRegionPtr >& root_table)
-		:CompoundRegionMap(arm, std::vector< CompoundRegion >()), root_table(root_table.size())
+	HierarchicalRegionMap(AtomicRegionMap_type arm, const std::vector< HierarchicalRegionPtr >& root_table,
+								const ExtraDataMap& edm = ExtraDataMap())
+		:CompoundRegionMap(arm, std::vector< CompoundRegion >(), edm), root_table(root_table.size())
 	{
 		std::queue<HierarchicalRegionPtr> too_look_at_queue;
 
