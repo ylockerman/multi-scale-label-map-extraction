@@ -82,10 +82,29 @@ void load_numeric_array(matvar_t * arr,std::string name, std::valarray<NumericTy
 	{
 		throw std::exception( (name + " has unknown type").c_str() );
 	}
-
-
 }
 
+void load_numeric_array(matvar_t * arr, std::string name, ExtraData& out)
+{
+	load_numeric_array<float>(arr, name, out.data);
+
+	if (arr->rank == 1)
+	{
+		out.rows = arr->dims[0];
+		out.cols = 1;
+		out.layout = ExtraData::Array;
+	}
+	else if (arr->rank == 2)
+	{
+		out.rows = arr->dims[0];
+		out.cols = arr->dims[1];
+		//Matlab alwase stores data in Col Major order
+		out.layout = ExtraData::ColMajorOrder;
+	}
+	else
+		throw std::exception((name + " is too high rank to load").c_str());
+
+}
 /*
 	Loads extra data that may of included in an array.  
 */

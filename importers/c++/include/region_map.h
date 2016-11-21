@@ -51,7 +51,39 @@ If you find it useful, please consider giving us credit or citing our paper.
 #include <map>
 #include <queue>
 
-typedef std::valarray<float> ExtraData;
+
+struct ExtraData {
+	enum DataLayout {
+		Array,
+		RowMajorOrder,
+		ColMajorOrder,
+	} layout;
+	size_t rows;
+	size_t cols;
+
+	std::valarray<float> data;
+
+	float& data_at(size_t r, size_t c)
+	{
+		if (layout == RowMajorOrder)
+			return data[r*cols + c];
+		else if (layout == ColMajorOrder)
+			return data[r + c*rows];
+		else
+			return data[r];
+	}
+
+	const float& data_at(int r, int c) const 
+	{
+		if (layout == RowMajorOrder)
+			return data[r*cols + c];
+		else if (layout == ColMajorOrder)
+			return data[r + c*rows];
+		else
+			return data[r];
+	}
+};
+
 typedef std::map<std::string, ExtraData > ExtraDataMap;
 
 template <typename ImageData_t, typename RegionKey_t, 

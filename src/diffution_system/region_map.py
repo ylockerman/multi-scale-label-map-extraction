@@ -46,7 +46,14 @@ import collections
 import numpy as np
 import numpy.ma as ma
 
-
+#Util for creating raw data
+#based on http://stackoverflow.com/questions/38987/how-to-merge-two-python-dictionaries-in-a-single-expression
+def update_dict(x, func,*args,**kwargs):
+    '''Given two dicts, merge them into a new dict as a shallow copy.'''
+    
+    if func:
+        x.update(func(*args,**kwargs))
+    return x
 
 class AbstractRegionMap(collections.Mapping):
     """
@@ -400,11 +407,22 @@ class AtomicRegionMap(AbstractRegionMap):
         
         return image_out
         
-    def get_raw_data(self):
+    def get_raw_data(self, func = None):
         """
-           Outputs the content of this map as a numpy array
+        Outputs the content of this map as a combination of python 
+        primitives and numpy arrays. 
+    
+        If func is supplied, it should be of the form
+            extra_info=func(map,key) 
+            
+        and will be passed this map, and the key being processed and return 
+        extra info to be included in the raw data. extra_info must be a dict.         
         """
-        return np.copy(self.get_indicator_array())
+
+        extra_data = [  func(self.key_from_index(idx)) if func else {} 
+                             for idx in xrange(len(self)) ]
+        
+        return np.copy(self.get_indicator_array()), extra_data
         
 class CompoundRegion(object):
     """
@@ -583,18 +601,27 @@ class CompoundRegionMap(AbstractRegionMap):
                             
         return base_indexes
         
-    def get_raw_data(self):
+    def get_raw_data(self, func = None):
         """
-            Outputs the content of this map as a numpy array with the base
-            superpixel of each pixel and compound regions. 
+        Outputs the content of this map as a combination of python 
+        primitives and numpy arrays. 
+    
+        If func is supplied, it should be of the form
+            extra_info=func(map,key) 
+            
+        and will be passed this map, and the key being processed and return 
+        extra info to be included in the raw data. extra_info must be a dict.         
         """
 
-        raw_data = [ { 'list_of_atomic_superpixels' :np.copy( node.atomic_regions ) } 
+        raw_data = [ update_dict(
+                     { 
+                      'list_of_atomic_superpixels' :np.copy( node.atomic_regions ) 
+                        },func,self,node) 
                          for node in self._region_set 
                    ]
 
         
-        return (self._atomic_region_map.get_raw_data(),raw_data)
+        return (np.copy(self._atomic_region_map.get_indicator_array()),raw_data)
         
 def build_compound_region(old_map,new_region_mapping):
     """
@@ -818,26 +845,32 @@ class HierarchicalRegionMap(CompoundRegionMap):
         plt.show(block=True)
  
         
-    def get_raw_data(self):
+    def get_raw_data(self, func = None):
         """
-            Outputs the content of this map as a numpy array with the base
-            superpixel of each pixel and a tree with the superpixels at each 
-            level. 
+        Outputs the content of this map as a combination of python 
+        primitives and numpy arrays. 
+    
+        If func is supplied, it should be of the form
+            extra_info=func(map,key) 
+            
+        and will be passed this map, and the key being processed and return 
+        extra info to be included in the raw data. extra_info must be a dict.         
         """
 
         def recusive_build_tree(list_of_nodes):      
             return [
+                    update_dict(
                      { 
                         'scale' : node.scale,
                         'list_of_atomic_superpixels' : np.copy(node.atomic_regions),
                         'children' : recusive_build_tree(node.children)
-                     } 
+                     },func,self,node)
                          for node in list_of_nodes 
                    ]
 
         
-        return (self._atomic_region_map.get_raw_data(), 
-                    recusive_build_tree(self._root_table))
+        return (np.copy(self._atomic_region_map.get_indicator_array()), 
+                                    recusive_build_tree(self._root_table))
         
 def hierarchical_region_map_from_stack(stack_dict):
     """

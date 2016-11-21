@@ -41,6 +41,10 @@ If you find it useful, please consider giving us credit or citing our paper.
 This is a simple program to demonstrate loading of label map data. Given a label-map file and a scale
 it will output a ppm file with each superpixel given a random color.
 
+If the F and G matrixes are stored in the file, the program will print them to screen. Note that F and G 
+matrixes are only saved if multiscale_extraction.py is ran with --clustering_algorithum being set to 
+"NMF" or "NMF-boosted".
+
 Usage:
 label_map_demo input_file.mat output_file_%f.ppm [--tree]
 Where:
@@ -124,19 +128,25 @@ int main(int argc, char* argv[])
 				if (elm.second->has_extra_data("F"))
 				{
 					ExtraData F = elm.second->get_extra_data("F");
-					cout << "	Has F matrix:";
-					for (size_t i = 0; i < F.size(); i++)
-						cout << F[i] << " ";
-					cout << endl;
+					cout << "	Has F matrix: "<< F.rows <<"x" << F.cols << endl;
+					for (size_t r = 0; r < F.rows; r++)
+					{
+						for (size_t c = 0; c < F.cols; c++)
+							cout << F.data_at(r, c) << " ";
+						cout << endl;
+					}
 				}
 
 				if (elm.second->has_extra_data("G"))
 				{
 					ExtraData G = elm.second->get_extra_data("G");
-					cout << "	Has G matrix:";
-					for (size_t i = 0; i < G.size(); i++)
-						cout << G[i] << " ";
-					cout << endl;
+					cout << "	Has G matrix: " << G.rows << "x" << G.cols << endl;
+					for (size_t r = 0; r < G.rows; r++)
+					{
+						for (size_t c = 0; c < G.cols; c++)
+							cout << G.data_at(r, c) << " ";
+						cout << endl;
+					}
 				}
 			}
 		}
@@ -149,8 +159,5 @@ int main(int argc, char* argv[])
 	{
 		cerr << "Error encounted!";
 	}
-
-	char c;
-	cin >> c;
 
 }

@@ -139,7 +139,7 @@ def build_label_map(superpixels_at_scale,
                                                           **feature_space_constants)
     discriptor = current_space.create_image_discriptor(superpixels_at_scale);
     
-
+    aditinal_info['feature_discriptor'] = discriptor
     
     use_gpu = False #discriptor.shape[1] > 15
         
@@ -157,6 +157,8 @@ def build_label_map(superpixels_at_scale,
     
     if steps is None:
         steps = diffusion_graph.estimate_steps(diff_mat)  
+        
+    aditinal_info['steps'] = steps
         
     if make_debug_display_vector:
         debug_display_vector=make_debug_display_vector(superpixels_at_scale)

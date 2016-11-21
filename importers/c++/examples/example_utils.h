@@ -14,10 +14,10 @@ void output_PPM(std::string filename, const RegionMap& rmap)
 {
 
 	//Get the array of superpixels at the scale of interest.
-	std::shared_ptr<typename RegionMap::AbstractRegionMap_type> regions = rmap.copy_map_for_new_image();
+	std::shared_ptr<typename RegionMap::AbstractRegionMap_type> regions = rmap.copy_map_for_new_image<color>();
 
 	//Create a random color for each superpixel, and fill in the image to that color 
-	for (const CompoundRegionMap<byte>::RegionKey& key : *regions)
+	for (const CompoundRegionMap<color>::RegionKey& key : *regions)
 	{
 		//std::valarray<color> data = ;
 

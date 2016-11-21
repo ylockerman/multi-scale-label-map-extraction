@@ -21,3 +21,6 @@ target_link_libraries (HSLIC_demo LINK_PUBLIC label_map_io)
 
 add_executable (label_map_demo examples/label_map_demo.cpp examples/example_utils.h)
 target_link_libraries (label_map_demo LINK_PUBLIC label_map_io)
+
+add_executable (HSLIC_features_demo examples/HSLIC_features_demo.cpp examples/example_utils.h)
+target_link_libraries (HSLIC_features_demo LINK_PUBLIC label_map_io)

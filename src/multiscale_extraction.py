@@ -64,7 +64,7 @@ import scipy.io
 from  diffution_system import hierarchical_SLIC
 from diffution_system import label_map
 from diffution_system import region_map
-
+from diffution_system import feature_space
 from gpu import opencl_tools
 
 
@@ -80,6 +80,8 @@ import numpy as np
 import numpy.ma as ma
 
 from skimage import io, color
+
+
 
 import time
 
@@ -173,6 +175,8 @@ def prase_arguments():
     parser.add_argument('--enable_NMF_debug_vector' ,action="store_true",  
                         help="Displaies debug vectors for the NMF based code")  
                         
+    parser.add_argument('--output_features' ,action="store_true",  
+                        help="Output all the features for the for the HSLIC label map.")  
                         
     scale_args = parser.add_argument_group('Scale Selection',"Parameters to select the scales to use")
     scale_args.add_argument('--base_scale',type=PercentArgument,default='2%',nargs='*',
@@ -361,7 +365,14 @@ if __name__ == '__main__':
     
     ctx = opencl_tools.get_a_context()
 
-    
+    #The 'gabor_filters' feature space requires knowledge if the scale in order 
+    #to do the Gabor filtering.  As currently implemented, this is not easy. 
+    #As such we should warn the users now so they don’t need to wait until the 
+    #end of the calculation to get an error.  
+    if (args.output_features and 
+            constants['feature_space']['feature_space_name']  == 'gabor_filters'):
+            print("Cannot output all features for the 'gabor_filters' feature space.");
+            sys.exit(4);        
     #From http://stackoverflow.com/questions/3579568/choosing-a-file-in-python-simple-gui
     from Tkinter import Tk
     from tkFileDialog import askopenfilename, asksaveasfilename
@@ -379,7 +390,7 @@ if __name__ == '__main__':
     
         if(file_name is None or file_name == ""):
             import sys;
-            print("Uses quit without selecting a file");
+            print("User quit without selecting a file");
             sys.exit(0);
     else:
         file_name = args.input_image
@@ -391,7 +402,7 @@ if __name__ == '__main__':
     
         if(save_file_name is None or file_name == ""):
             import sys;
-            print("Uses quit without selecting a file");
+            print("User quit without selecting a file");
             sys.exit(0);
     else:
         save_file_name = args.output_file
@@ -555,7 +566,17 @@ if __name__ == '__main__':
     if args.show_labels_gui:
         hierarchical_labels.show_gui(image);
     
-    SLIC_raw,HSLIC_raw = tile_map_multi_scale.get_raw_data()
+    #If we need the features output them
+    if args.output_features:
+        current_space = feature_space.create_feature_space(**constants['feature_space'])
+        all_features = current_space.create_image_discriptor(tile_map_multi_scale)
+        def additinal_output(_,key):
+            return {"feature": 
+                        np.copy(all_features[tile_map_multi_scale.index_from_key(key)]) }
+    else:
+        additinal_output = None
+
+    SLIC_raw,HSLIC_raw = tile_map_multi_scale.get_raw_data(additinal_output)
     _ , texture_tree_raw = hierarchical_labels.get_raw_data()
     
     
