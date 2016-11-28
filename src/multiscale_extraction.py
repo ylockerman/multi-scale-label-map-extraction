@@ -410,7 +410,7 @@ if __name__ == '__main__':
 
     if frozen_status:
         sys.frozen = frozen_status
-    else:
+    elif getattr(sys, 'frozen', False):
         del sys.frozen
         
     image = io.imread(file_name)/255.0

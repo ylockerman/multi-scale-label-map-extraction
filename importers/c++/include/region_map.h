@@ -903,15 +903,18 @@ class HierarchicalRegionMap : public CompoundRegionMap<ImageData_t>
 	/*
 	Helper function for superpixels_at_scale. Will return the largest superpixels that are a scall less then "scale."
 	*/
-	void _get_nodes_less_then_scale(const std::vector<HierarchicalRegionPtr>& tree_list,
-										scale_type scale, std::vector<CompoundRegionPtr>& out)
+	void _get_nodes_less_then_scale(scale_type max_scale, std::vector<CompoundRegionPtr>& out)
 	{
-		for (HierarchicalRegionPtr node : tree_list)
+		std::vector<HierarchicalRegionPtr> list_to_process = root_table;
+
+		while (!list_to_process.empty())
 		{
-			if (node->scale <= scale || node->children_node.size() == 0)
+			HierarchicalRegionPtr node = list_to_process.back();list_to_process.pop_back();
+
+			if (node->scale < max_scale || node->children_node.empty())
 				out.push_back(std::dynamic_pointer_cast<CompoundRegion>(node));
 			else
-				_get_nodes_less_then_scale(node->children_node, scale, out);
+				list_to_process.insert(list_to_process.end(), node->children_node.begin(), node->children_node.end());
 		}
 	}
 
@@ -1013,7 +1016,7 @@ public:
 	CompoundRegionMap<ImageData_t> get_single_scale_map(scale_type scale)
 	{
 		std::vector<CompoundRegionPtr> single_scale_regions;
-		_get_nodes_less_then_scale(root_table, scale, single_scale_regions);
+		_get_nodes_less_then_scale(scale, single_scale_regions);
 
 		return CompoundRegionMap<ImageData_t>(atomic_region_map, single_scale_regions);
 	}

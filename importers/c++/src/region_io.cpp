@@ -86,7 +86,7 @@ void load_numeric_array(matvar_t * arr,std::string name, std::valarray<NumericTy
 
 void load_numeric_array(matvar_t * arr, std::string name, ExtraData& out)
 {
-	load_numeric_array<float>(arr, name, out.data);
+	load_numeric_array<scale_type>(arr, name, out.data);
 
 	if (arr->rank == 1)
 	{
@@ -248,7 +248,7 @@ std::vector<CompoundRegionPtr> load_region_node_from_cell_array(matvar_t* cell_a
 /*
 Loads a stack of compound region maps from a matlab variable.
 */
-std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > load_region_stack_from_cell_array(matvar_t* cell_array)
+std::map<scale_type, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > load_region_stack_from_cell_array(matvar_t* cell_array)
 {
 	if (cell_array->data_type != MAT_T_CELL || cell_array->nbytes < 1)
 		throw std::exception("Invalid list of regions");
@@ -261,7 +261,7 @@ std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > load_
 		throw std::exception("Invalid list of regions");
 
 
-	std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> >  output;
+	std::map<scale_type, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> >  output;
 
 	for (int i = 0; i < number_of_cells; i++)
 	{
@@ -269,15 +269,15 @@ std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > load_
 		{
 			//load the scale. This will need to be a float or double. 
 			matvar_t* scale = get_struct_field(all_cells[i], "scale");
-			float scale_f;
+			scale_type scale_f;
 
 			if (scale->data_type == MAT_T_SINGLE)
 			{
-				scale_f = *((float*)scale->data);
+				scale_f = (scale_type)*((float*)scale->data);
 			}
 			else if (scale->data_type == MAT_T_DOUBLE)
 			{
-				scale_f = (float)*((double*)scale->data);
+				scale_f = (scale_type)*((double*)scale->data);
 			}
 			else
 			{
@@ -334,11 +334,11 @@ std::vector<HierarchicalRegionPtr> load_hierarchical_region_node_from_cell_array
 
 			if (scale->data_type == MAT_T_SINGLE)
 			{
-				output[i]->scale = *((float*)scale->data);
+				output[i]->scale = (scale_type)*((float*)scale->data);
 			}
 			else if (scale->data_type == MAT_T_DOUBLE)
 			{
-				output[i]->scale = (float)*((double*)scale->data);
+				output[i]->scale = (scale_type)*((double*)scale->data);
 			}
 			else
 			{

@@ -41,8 +41,8 @@ If you find it useful, please consider giving us credit or citing our paper.
 
 
 #pragma once
-#ifndef HSLIC_H
-#define HSLIC_H
+#ifndef LABEL_MAP_H
+#define LABEL_MAP_H
 
 #include <vector>
 #include <string>

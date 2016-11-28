@@ -124,10 +124,10 @@ int main(int argc, char* argv[])
 			{
 				ExtraData ed = single_scale.get_extra_data("feature", key);
 
-				for (size_t data_id = 0; data_id < ed.rows; data_id++)
+				for (size_t data_id = 0; data_id < ed.cols; data_id++)
 				{
 					features << ed.data[data_id];
-					if (data_id < ed.rows)
+					if (data_id < ed.cols)
 						features << ", ";
 				}
 			}

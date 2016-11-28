@@ -92,7 +92,7 @@ CompoundRegion load_region(matvar_t* struct_array, bool is_hierarchical);
 /*
 Loads a stack of compound region maps from a matlab variable.
 */
-std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > load_region_stack_from_cell_array(matvar_t* cell_array);
+std::map<scale_type, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > load_region_stack_from_cell_array(matvar_t* cell_array);
 
 /*
 This method loads a region list format used in our file.
@@ -140,7 +140,7 @@ AtomicRegionMap<ImageData> load_atomic_region_map(_mat_t* matfp, std::string ima
 }
 
 template<typename ImageData>
-std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > load_region_map_stack(_mat_t* matfp, AtomicRegionMap<ImageData> atomic_region,
+std::map<scale_type, std::shared_ptr< CompoundRegionMap<ImageData> > > load_region_map_stack(_mat_t* matfp, AtomicRegionMap<ImageData> atomic_region,
 																				std::string region_list_name)
 {
 	matvar_raii hslic_list_var = Mat_VarRead(matfp, region_list_name.c_str());
@@ -148,11 +148,11 @@ std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > load_region_ma
 	if (!hslic_list_var)
 		throw std::exception((std::string("File does not include ") + region_list_name + ".").c_str());
 
-	std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > region_stack = load_region_stack_from_cell_array(hslic_list_var);
+	std::map<scale_type, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> > region_stack = load_region_stack_from_cell_array(hslic_list_var);
 
-	std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > output_stack;
+	std::map<scale_type, std::shared_ptr< CompoundRegionMap<ImageData> > > output_stack;
 
-	for (std::map<float, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> >::iterator it = region_stack.begin(); it != region_stack.end(); it++)
+	for (std::map<scale_type, std::pair< std::vector<CompoundRegionPtr>, ExtraDataMap> >::iterator it = region_stack.begin(); it != region_stack.end(); it++)
 	{
 		output_stack[it->first] = std::make_shared<CompoundRegionMap<ImageData>> (atomic_region, it->second.first, it->second.second);
 	}
