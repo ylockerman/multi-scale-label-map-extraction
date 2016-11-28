@@ -51,6 +51,7 @@ If you find it useful, please consider giving us credit or citing our paper.
 #include <map>
 #include <queue>
 
+typedef float extra_data_numeric_type; 
 
 struct ExtraData {
 	enum DataLayout {
@@ -61,9 +62,9 @@ struct ExtraData {
 	size_t rows;
 	size_t cols;
 
-	std::valarray<float> data;
+	std::valarray<extra_data_numeric_type> data;
 
-	float& data_at(size_t r, size_t c)
+	extra_data_numeric_type& data_at(size_t r, size_t c)
 	{
 		if (layout == RowMajorOrder)
 			return data[r*cols + c];
@@ -73,7 +74,7 @@ struct ExtraData {
 			return data[r];
 	}
 
-	const float& data_at(int r, int c) const 
+	const extra_data_numeric_type& data_at(int r, int c) const
 	{
 		if (layout == RowMajorOrder)
 			return data[r*cols + c];
@@ -837,6 +838,10 @@ public:
 	template <typename ImageData_t> friend  class HierarchicalRegionMap;
 };
 
+
+
+typedef double  scale_type;
+
 /*
 A Node in a tree of regions. This can be superpixels in HSLIC or 
 labels for labelmaps
@@ -854,7 +859,7 @@ struct HierarchicalRegion : public CompoundRegion
 	std::vector< std::shared_ptr<HierarchicalRegion> > children_node;
 
 	/*The scale of the node (negitive if not avalable)*/
-	float scale;
+	scale_type scale;
 
 public:
 	HierarchicalRegion()
@@ -886,7 +891,6 @@ public:
 
 typedef std::shared_ptr<HierarchicalRegion> HierarchicalRegionPtr;
 
-typedef float  scale_type;
 
 /*
 A HierarchicalRegionMap is a forest of regions across different scales.

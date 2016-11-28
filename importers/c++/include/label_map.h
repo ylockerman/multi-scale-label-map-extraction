@@ -72,7 +72,7 @@ HierarchicalRegionMap<ImageData> load_hierarchical_label_map(const std::string& 
 
 
 template <typename ImageData>
-std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > load_label_map_stack(const std::string& file, int stride = 0)
+std::map<scale_type, std::shared_ptr< CompoundRegionMap<ImageData> > > load_label_map_stack(const std::string& file, int stride = 0)
 {
 	mat_raii matfp = Mat_Open(file.c_str(), MAT_ACC_RDONLY);
 
@@ -82,7 +82,7 @@ std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > load_label_map
 
 	AtomicRegionMap<ImageData> SLIC = load_atomic_region_map<ImageData>(matfp, "image_shape", "atomic_SLIC_rle", stride);
 
-	std::map<float, std::shared_ptr< CompoundRegionMap<ImageData> > > region_map_stack = load_region_map_stack(matfp, SLIC, "texture_lists");
+	std::map<scale_type, std::shared_ptr< CompoundRegionMap<ImageData> > > region_map_stack = load_region_map_stack(matfp, SLIC, "texture_lists");
 
 	return region_map_stack;
 }

@@ -107,9 +107,9 @@ int main(int argc, char* argv[])
 			//Create a map to a blank image
 			HierarchicalRegionMap<color> hlabels = load_hierarchical_label_map<color>(filename_in, 3);
 
-			std::vector<float> all_scales = hlabels.get_scales();
+			std::vector<scale_type> all_scales = hlabels.get_scales();
 
-			for (float scale : all_scales)
+			for (scale_type scale : all_scales)
 			{
 				cout << "Saving scale " << scale << endl;
 				output_PPM(filename_out.replace(index_of_template, 2, to_string(scale)), hlabels.get_single_scale_map(scale));
@@ -117,9 +117,9 @@ int main(int argc, char* argv[])
 		}
 		else
 		{
-			std::map<float, std::shared_ptr< CompoundRegionMap<color> > > label_stack =  load_label_map_stack<color>(filename_in, 3);
+			std::map<scale_type, std::shared_ptr< CompoundRegionMap<color> > > label_stack =  load_label_map_stack<color>(filename_in, 3);
 
-			for (const std::pair<float, std::shared_ptr< CompoundRegionMap<color> > >& elm : label_stack)
+			for (const std::pair<scale_type, std::shared_ptr< CompoundRegionMap<color> > >& elm : label_stack)
 			{
 				cout << "Saving scale:" << elm.first << endl;
 				output_PPM(filename_out.replace(index_of_template, 2, to_string(elm.first)), *elm.second);

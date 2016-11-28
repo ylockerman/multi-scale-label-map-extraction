@@ -86,7 +86,7 @@ void load_numeric_array(matvar_t * arr,std::string name, std::valarray<NumericTy
 
 void load_numeric_array(matvar_t * arr, std::string name, ExtraData& out)
 {
-	load_numeric_array<scale_type>(arr, name, out.data);
+	load_numeric_array<extra_data_numeric_type>(arr, name, out.data);
 
 	if (arr->rank == 1)
 	{
