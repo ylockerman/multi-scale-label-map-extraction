@@ -808,7 +808,16 @@ class SLIC_calulator:
 
 
 def relable_connected_clusters(cluster_index_cpu,cluster_color_value_cpu,cluster_locations_cpu):
-        new_cluster_index = skimage.morphology.label(cluster_index_cpu,8);
+        #skimage treats 0 as a special  case. We sift past 0 before calling
+        #skimage's code then move it back 
+        min_value = np.min(cluster_index_cpu)
+        cluster_index_cpu_rezero = cluster_index_cpu - (min_value - 1)
+        
+        new_cluster_index = skimage.morphology.label(cluster_index_cpu_rezero,8);
+
+        #Now we can move back to zero.
+        new_cluster_index = skimage.segmentation.relabel_sequential(new_cluster_index)[0] - 1
+
         new_lable_cont = np.max(new_cluster_index)+1
         
 
