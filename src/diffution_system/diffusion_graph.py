@@ -43,7 +43,7 @@ def build_knn_graph_ann(features,k):
     #nearist, dist_sqr= knn_finder.knn(features,k,eps);
     
     import sklearn.neighbors
-    nbrs = sklearn.neighbors.NearestNeighbors(n_neighbors=k,n_jobs=-1);
+    nbrs = sklearn.neighbors.NearestNeighbors(n_neighbors=k,n_jobs=1);
     dist, nearist = nbrs.fit(features).kneighbors(features)
 
     return nearist,dist**2

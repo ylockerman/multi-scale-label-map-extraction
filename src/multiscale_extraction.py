@@ -514,8 +514,8 @@ if __name__ == '__main__':
         scale_list = []
         
         all_scales =  tile_map_multi_scale.get_scales()  
-        min_scale = min(all_scales)
-        max_scale = max(all_scales)
+        min_scale = max(min(all_scales),tile_size)
+        max_scale = min(max(all_scales),max_tile_size)
 
         if args.scale_decay_rate is not None:
             decay_rate = args.scale_decay_rate
@@ -527,7 +527,7 @@ if __name__ == '__main__':
         print("Decay rate",decay_rate)
 
         scale_at = max_scale
-        while scale_at > min_scale:
+        while scale_at >= min_scale:
             scale_list.append(scale_at)
             scale_at *= decay_rate
         
@@ -551,7 +551,7 @@ if __name__ == '__main__':
     }
     
     label_map_dict, aditinal_info_dict =\
-                label_map.build_label_map_stack(tile_map_multi_scale,
+           label_map.build_label_map_stack(tile_map_multi_scale,scale_list,
                                   build_label_map_prams=build_label_map_prams)
                                                          
     hierarchical_labels = region_map.hierarchical_region_map_from_stack(label_map_dict)
