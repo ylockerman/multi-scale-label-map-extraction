@@ -273,7 +273,7 @@ def get_inkernal_dual_reduction(array1,array2,block_size,index,stepsize1="1",ste
 def build_preamble_for_context(ctx,preamble=""):
     warp_size=clchar.get_simd_group_size(ctx.devices[0],0)
     
-    if(warp_size >= 32):
+    if(warp_size >= 32 and False):
         preamble += """
                     #define WARPSPEED
                     #define NOWARPBLOCK

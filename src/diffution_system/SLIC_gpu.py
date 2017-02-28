@@ -612,6 +612,7 @@ class SLIC_calulator:
 #        im = plt.imshow(skimage.segmentation.mark_boundaries(image_rgb,cluster_index_cpu))
 #        plt.gca().get_xaxis().set_visible(False)
 #        plt.gca().get_yaxis().set_visible(False)    
+#        lines = None
 #        plt.pause(.1);
         
         for try_up in xrange(max_tryes):
@@ -660,11 +661,13 @@ class SLIC_calulator:
                 if( new_error == last_error):
                     break;
  
-
 #                cluster_index_cpu =cluster_index.get(self._queue)     
 #                im.set_data(skimage.segmentation.mark_boundaries(image_rgb,cluster_index_cpu))
 #                cluster_locations_cpu =cluster_locations.get(self._queue) 
-#                plt.plot(cluster_locations_cpu[:,1],cluster_locations_cpu[:,0],'*')
+#                if lines:
+#                    for l in lines:
+#                        l.remove();
+#                lines = plt.plot(cluster_locations_cpu[:number_of_clusters,1],cluster_locations_cpu[:number_of_clusters,0],'*')
 #                plt.pause(2);
                 
                 last_error=new_error             
