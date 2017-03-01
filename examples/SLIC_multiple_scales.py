@@ -61,11 +61,8 @@ site.addsitedir(os.getcwd());
 import multiprocessing 
 
 
-import diffution_system.tile_map
-import diffution_system.feature_space
-import diffution_system.gui
-import diffution_system.SLIC_gpu
-import diffution_system.SLIC_multiscale
+from diffution_system import hierarchical_SLIC
+from diffution_system import SLIC_gpu
 
 
 from gpu import opencl_tools
@@ -92,7 +89,7 @@ from matplotlib.widgets import Cursor, Slider, Button
 
 from matplotlib import rc
 rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
-rc('text', usetex=True)
+#rc('text', usetex=True)
 
 import run_existing_SLIC
 
@@ -104,7 +101,7 @@ def from_color_space(image):
     
     
 constants = {
-    'SLIC_multiscale' : { 'm_base' : 20, 
+    'hierarchical_SLIC' : { 'm_base' : 20, 
                           'm_scale' : 1,
                           'total_runs' : 1,
                           'max_itters' : 1000,
@@ -219,7 +216,7 @@ if __name__ == '__main__':
 #                                                          )
 #   
      #tile_map =  diffution_system.SLIC_gpu.SLICTileMap(image_lab,tile_size,**constants['SLIC'])     
-    tile_map_multi_scale =  diffution_system.SLIC_multiscale.SLICMultiscaleTileMap(image_lab,min_tile_size,max_tile_size,**constants['SLIC_multiscale'])
+    tile_map_multi_scale =  hierarchical_SLIC.HierarchicalSLIC(image_lab,min_tile_size,max_tile_size,**constants['hierarchical_SLIC'])
     
     
     fig = plt.figure()

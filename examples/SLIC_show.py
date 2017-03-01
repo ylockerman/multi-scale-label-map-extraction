@@ -60,10 +60,8 @@ site.addsitedir(os.getcwd());
 
 import multiprocessing 
 
-import diffution_system.tile_map
-import diffution_system.feature_space
-import diffution_system.SLIC_gpu
-
+from diffution_system import hierarchical_SLIC
+from diffution_system import SLIC_gpu
 
 from gpu import opencl_tools
 
@@ -112,21 +110,7 @@ if __name__ == '__main__':
     import glob
     import os
     ctx = opencl_tools.get_a_context()
-         
-#    #Create an experiment
-#    data_management.create_experiment("eage_aware_editing");
-#    
-#    #add the source files
-#    source_files = glob.glob(os.path.join(os.path.dirname(__file__),'*.py'))
-#    dest_files = [os.path.join('source_files',os.path.basename(fi)) 
-#                                                    for fi in source_files ]
-#    data_management.current_experiment().add_files(zip(source_files,dest_files))     
-#    
-#    source_files = glob.glob(os.path.join(os.path.dirname(__file__),'diffution_system','*.py'))
-#    dest_files = [os.path.join('source_files','diffution_system',os.path.basename(fi)) 
-#                                                     for fi in source_files ]
-#    data_management.current_experiment().add_files(zip(source_files,dest_files))      
-    
+
     
     #From http://stackoverflow.com/questions/3579568/choosing-a-file-in-python-simple-gui
     from Tkinter import Tk
@@ -140,36 +124,16 @@ if __name__ == '__main__':
         print("Uses quit without selecting a file");
         sys.exit(0);
         
-#    save_file_name = asksaveasfilename(filetypes=[('textured image','*.tximg')],
-#                                 defaultextension=".tximg",
-#                                 initialdir=data_management.get_full_data_path(''))
-#
-#    if(save_file_name is None):
-#        import sys;
-#        data_management.print_("Uses quit without selecting a sve file");
-#        sys.exit(0);
-    #file_name = data_management.get_full_data_path('For Paper/DSC_4930.jpg')
+
     
     image = io.imread(file_name)/255.0
     image_lab = to_color_space(image)
     
-    #turn grayscale to color
-#    if( len(image.shape) == 2 ):
-#        old_image = image
-#        image = np.zeros(old_image.shape+(3,));
-#        for ii in xrange(3):
-#            image[:,:,ii] = old_image
-    
-    #add the orignal image to the file
-    #data_management.add_image("orignal_image.jpg",image)
-    
     #Create a tileset from the image, with the user selecting the scale
     tile_size = .02*max(image.shape[:2])
 
-    
-
     #tile_map =  diffution_system.SLIC_gpu.SLICTileMap(image_lab,tile_size,**constants['SLIC'])     
-    tile_map =  diffution_system.SLIC_gpu.SLICTileMap(image_lab,tile_size,**constants['SLIC'])
+    tile_map =  SLIC_gpu.SLIC(image_lab,tile_size,**constants['SLIC'])
     
                                          
     def get_indicator(tm):

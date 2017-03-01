@@ -64,13 +64,8 @@ import multiprocessing
 
 #import knn_finder
 
-import diffution_system.tile_map
-import diffution_system.feature_space
-import diffution_system.gui
-import diffution_system.clustering_gpu as clustering
-from diffution_system import diffusion_graph
-import diffution_system.SLIC_gpu
-import diffution_system.SLIC_multiscale
+from diffution_system import hierarchical_SLIC
+from diffution_system import SLIC_gpu
 
 
 from gpu import opencl_tools
@@ -95,9 +90,9 @@ import matplotlib.colors
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Cursor, Slider, Button
 
-from matplotlib import rc
-rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
-rc('text', usetex=True)
+#from matplotlib import rc
+#rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
+#rc('text', usetex=True)
 
 import run_existing_SLIC
 
@@ -109,7 +104,7 @@ def from_color_space(image):
     
     
 constants = {
-    'SLIC_multiscale' : { 'm_base' : 20, 
+    'hierarchical_SLIC' : { 'm_base' : 20, 
                           'm_scale' : 1,
                           'total_runs' : 1,
                           'max_itters' : 1000,
@@ -119,30 +114,14 @@ constants = {
 
 }
 
-m_regular_SLIC = 1
+m_regular_SLIC = 1 #constants['hierarchical_SLIC']['m_base']
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()
-    
-    import time
-    import glob
+
     import os
     ctx = opencl_tools.get_a_context()
          
-#    #Create an experiment
-#    data_management.create_experiment("eage_aware_editing");
-#    
-#    #add the source files
-#    source_files = glob.glob(os.path.join(os.path.dirname(__file__),'*.py'))
-#    dest_files = [os.path.join('source_files',os.path.basename(fi)) 
-#                                                    for fi in source_files ]
-#    data_management.current_experiment().add_files(zip(source_files,dest_files))     
-#    
-#    source_files = glob.glob(os.path.join(os.path.dirname(__file__),'diffution_system','*.py'))
-#    dest_files = [os.path.join('source_files','diffution_system',os.path.basename(fi)) 
-#                                                     for fi in source_files ]
-#    data_management.current_experiment().add_files(zip(source_files,dest_files))      
-    
     
     #From http://stackoverflow.com/questions/3579568/choosing-a-file-in-python-simple-gui
     from Tkinter import Tk
@@ -153,31 +132,13 @@ if __name__ == '__main__':
 
     if(file_name is None):
         import sys;
-        print "Uses quit without selecting a file";
+        print("Uses quit without selecting a file");
         sys.exit(0);
         
-#    save_file_name = asksaveasfilename(filetypes=[('textured image','*.tximg')],
-#                                 defaultextension=".tximg",
-#                                 initialdir=data_management.get_full_data_path(''))
-#
-#    if(save_file_name is None):
-#        import sys;
-#        data_management.print_("Uses quit without selecting a sve file");
-#        sys.exit(0);
-    #file_name = data_management.get_full_data_path('For Paper/DSC_4930.jpg')
     
     image = io.imread(file_name)/255.0
     image_lab = to_color_space(image)
-    
-    #turn grayscale to color
-#    if( len(image.shape) == 2 ):
-#        old_image = image
-#        image = np.zeros(old_image.shape+(3,));
-#        for ii in xrange(3):
-#            image[:,:,ii] = old_image
-    
-    #add the orignal image to the file
-    #data_management.add_image("orignal_image.jpg",image)
+
     
     #Create a tileset from the image, with the user selecting the scale
     min_tile_size = .02*max(image.shape[:2])#diffution_system.gui.scale_selector(image);
@@ -212,7 +173,6 @@ if __name__ == '__main__':
                     indicator_map[key][:,:,c] = color[c]
                 
             return indicator
-        
     
         
         #return skimage.segmentation.find_boundaries(indicator)[:,:,0]    
@@ -224,13 +184,17 @@ if __name__ == '__main__':
 #                                                          )
 #   
      #tile_map =  diffution_system.SLIC_gpu.SLICTileMap(image_lab,tile_size,**constants['SLIC'])     
-    tile_map_multi_scale =  diffution_system.SLIC_multiscale.SLICMultiscaleTileMap(image_lab,min_tile_size,max_tile_size,**constants['SLIC_multiscale'])
+    tile_map_multi_scale =  hierarchical_SLIC.HierarchicalSLIC(image_lab,min_tile_size,max_tile_size,**constants['hierarchical_SLIC'])
     
     tile_map = tile_map_multi_scale.get_single_scale_map(scale)
-    nosp = len(tile_map) #int(np.ceil(image.shape[0]*image.shape[1]/scale**2))
+#    nosp = len(tile_map) #int(np.ceil(image.shape[0]*image.shape[1]/scale**2))
     
-    tile_map_plain = run_existing_SLIC.get_SLIC_regions(image,m_regular_SLIC,nosp)
-    
+#   tile_map_plain = run_existing_SLIC.get_SLIC_regions(image,m_regular_SLIC,nosp)
+    tile_map_plain = SLIC_gpu.SLIC(image_lab,scale,
+                                          m=m_regular_SLIC, 
+                                          max_itters=constants['hierarchical_SLIC']['max_itters'],
+                                          min_cluster_size=constants['hierarchical_SLIC']['min_cluster_size']
+                                          )  
     
     edges_plain = get_indicator(tile_map_plain)    
 
@@ -246,7 +210,7 @@ if __name__ == '__main__':
     image_gpu = cl_array.to_device(queue,image_lab.astype(np.float32))
     image_gpu_buffer = cl_array.empty_like(image_gpu)
     
-    sigma = constants['SLIC_multiscale']['sigma']
+    sigma = constants['hierarchical_SLIC']['sigma']
     
     #Create the blure kernal
     range_vales = np.arange(-(3*sigma),3*sigma + 1);
@@ -271,7 +235,12 @@ if __name__ == '__main__':
 #                                                            min_cluster_size=constants['SLIC_multiscale']['min_cluster_size']
 #                                                          )
     
-    tile_map_blue = run_existing_SLIC.get_SLIC_regions(from_color_space(image_blure),m_regular_SLIC,nosp)
+    tile_map_blue = SLIC_gpu.SLIC(from_color_space(image_blure),scale,
+                                          m=m_regular_SLIC, 
+                                          max_itters=constants['hierarchical_SLIC']['max_itters'],
+                                          min_cluster_size=constants['hierarchical_SLIC']['min_cluster_size']
+                                          )  
+    #tile_map_blue = run_existing_SLIC.get_SLIC_regions(from_color_space(image_blure),m_regular_SLIC,nosp)
 
     edges_blure = get_indicator(tile_map_blue)
     
