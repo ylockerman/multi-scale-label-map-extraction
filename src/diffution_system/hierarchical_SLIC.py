@@ -15,7 +15,7 @@ from gpu import opencl_tools
 from gpu import gpu_algorithms
 from gpu import gpu_image_filter
 
-import bottleneck as bn
+import utils
 
 cl = opencl_tools.cl;
 cl_array = opencl_tools.cl_array
@@ -1105,7 +1105,7 @@ def calulate_multiscale(image,lowest_level_cluster,
             error_values_cpu = error_values.get(queue)[:live_pointwise_neghbors]
             error_list.append(np.sum(error_values_cpu))
             
-            smallest = np.max(bn.partsort(error_values_cpu,to_remove)[:to_remove])#
+            smallest = np.max(utils.partsort(error_values_cpu,to_remove)[:to_remove])#
             #smallest = cl_array.min(error_values[:live_pointwise_neghbors])
 
             

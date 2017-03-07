@@ -53,6 +53,8 @@ import time
 
 
 import bottleneck as bn
+import utils
+
 
 timing_constant = 200 
             
@@ -218,7 +220,7 @@ class KnnFinder(object):
         def make_calc(stop_point,ii) : 
                 def calc():
                     if(k<dist_local.shape[0]):
-                        index_local  = bn.argpartsort(dist_local,k,axis=0)[:k,:]
+                        index_local  = utils.argpartsort(dist_local,k,axis=0)[:k,:]
                         
                         for r in xrange(stop_point-ii):
                             dists_cpu_buffer_local = dist_local[index_local[:,r],r];
