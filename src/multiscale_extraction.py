@@ -167,7 +167,7 @@ def prase_arguments():
                         help="Will display a GUI to visualize the Hierarchical SLIC before continuing")        
 
     parser.add_argument('--clustering_algorithum' ,default="kmeans",  
-                        help="The clustering algorithum to use, can be NMF,NMF-boosted, kmeans, spectral")  
+                        help="The clustering algorithum to use, can be NMF,NMF-boosted, kmeans, spectral, or none")  
                         
     parser.add_argument('--show_labels_gui' ,action="store_true",  
                         help="Will display a GUI to visualize the hierarchical labels before continuing")        
@@ -177,6 +177,9 @@ def prase_arguments():
                         
     parser.add_argument('--output_features' ,action="store_true",  
                         help="Output all the features for the for the HSLIC label map.")  
+    
+    parser.add_argument('--do_compression' ,action="store_true",  
+                        help="Use mat file compression.")     
                         
     scale_args = parser.add_argument_group('Scale Selection',"Parameters to select the scales to use")
     scale_args.add_argument('--base_scale',type=PercentArgument,default='2%',nargs='*',
@@ -449,7 +452,30 @@ if __name__ == '__main__':
         tile_map_multi_scale.show_gui(image)
         
     
-    tmp_save_file_name = save_file_name
+    
+    #If we need the features output them
+    if args.output_features:
+        current_space = feature_space.create_feature_space(**constants['feature_space'])
+        all_features = current_space.create_image_discriptor(tile_map_multi_scale)
+        def additinal_output(_,key):
+            return {"feature": 
+                        np.copy(all_features[tile_map_multi_scale.index_from_key(key)]) }
+    else:
+        additinal_output = None
+
+    SLIC_raw,HSLIC_raw = tile_map_multi_scale.get_raw_data(additinal_output)
+    
+    #If we don't need labels, we can save and quit here.
+    if args.clustering_algorithum.lower() == 'none':
+        scipy.io.savemat(   save_file_name, 
+                            {'image_shape' : image.shape,
+                             'atomic_SLIC_rle' : output_RLE(SLIC_raw),
+                             'HSLIC' : HSLIC_raw,
+                            }, 
+                            appendmat = False,
+                            do_compression = args.do_compression
+                        )        
+        sys.exit(0)
                 
 
     def make_debug_display_vector(superpixel_map):
@@ -566,17 +592,7 @@ if __name__ == '__main__':
     if args.show_labels_gui:
         hierarchical_labels.show_gui(image);
     
-    #If we need the features output them
-    if args.output_features:
-        current_space = feature_space.create_feature_space(**constants['feature_space'])
-        all_features = current_space.create_image_discriptor(tile_map_multi_scale)
-        def additinal_output(_,key):
-            return {"feature": 
-                        np.copy(all_features[tile_map_multi_scale.index_from_key(key)]) }
-    else:
-        additinal_output = None
 
-    SLIC_raw,HSLIC_raw = tile_map_multi_scale.get_raw_data(additinal_output)
     _ , texture_tree_raw = hierarchical_labels.get_raw_data()
     
     
@@ -604,5 +620,6 @@ if __name__ == '__main__':
                          'SLIC_time' : tile_map_time,
                          'total_time' : total_time
                         }, 
-                        appendmat = False 
+                        appendmat = False,
+                        do_compression = args.do_compression 
                     )
