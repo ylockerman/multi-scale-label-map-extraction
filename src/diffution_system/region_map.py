@@ -239,7 +239,13 @@ class AtomicRegionMap(AbstractRegionMap):
             
             self._key_set = key_set
 
-
+    @staticmethod
+    def from_raw(image,raw_data):
+        """
+            Creates a tilemap from the raw data exported from get_raw_data 
+        """
+        atomic_tiles,other_info = raw_data
+        return AtomicRegionMap(image,atomic_tiles)
 
     def __getitem__(self,key):
         """
@@ -477,7 +483,19 @@ class CompoundRegionMap(AbstractRegionMap):
             for idx,node in enumerate(self._region_set):
                     self._index_lookup_table[node] = idx
 
+    @staticmethod
+    def from_raw(image,raw_data):
+        """
+            Creates a tilemap from the raw data exported from get_raw_data 
+        """
+        _ ,other_info = raw_data
+        atomic_region_map = AtomicRegionMap.from_raw(image,raw_data)
         
+        regions = [  CompoundRegion(ar['list_of_atomic_superpixels']) 
+                                for ar in other_info  ]
+    
+        return CompoundRegionMap(atomic_region_map,regions)
+    
     def get_submap(self,keyset):
         root_set = set(keyset)
         new_map = self.__class__(self._atomic_region_map,root_set)
@@ -687,12 +705,15 @@ class HierarchicalRegion(CompoundRegion):
     scale: float
         The scale of this region
     """
-    def __init__(self,atomic_regions,scale):
+    def __init__(self,atomic_regions,scale,children=None):
         super(HierarchicalRegion,self).__init__(atomic_regions)
         
         self.scale = scale
 
-        self.children = []
+        if children is None:
+            self.children = []
+        else:
+            self.children = children
 
             
 
@@ -748,8 +769,55 @@ class HierarchicalRegionMap(CompoundRegionMap):
                 regions_to_look_at += top.children
 
             self._scales_sorted =  sorted(self._regions_at_scale.keys())
-            super(HierarchicalRegionMap,self).__init__(atomic_region_map_or_image,all_regions)                     
+            super(HierarchicalRegionMap,self).__init__(atomic_region_map_or_image,all_regions)          
+            
+    @staticmethod
+    def from_raw(image,raw_data):
+        """
+            Creates a tilemap from the raw data exported from get_raw_data 
+        """
+        _ ,other_info = raw_data
+        atomic_region_map = AtomicRegionMap.from_raw(image,raw_data)
+        
+        def recusive_build_regions(raw_dict): 
+            out_array = []
+            
 
+            while (isinstance(raw_dict,np.ndarray) and 
+                   raw_dict.size == 1 and raw_dict.dtype == object):
+                raw_dict = raw_dict.flat[0]
+                
+            if isinstance(raw_dict,np.ndarray):        
+                raw_dict = raw_dict.flat
+            
+            
+            for d in raw_dict:
+                atomic_superpixels = d['list_of_atomic_superpixels']
+                
+                while (isinstance(atomic_superpixels,np.ndarray) and 
+                                       atomic_superpixels.size == 1 and 
+                                           atomic_superpixels.dtype == object):
+                        atomic_superpixels = atomic_superpixels.flat[0]
+                
+                if isinstance(atomic_superpixels,np.ndarray):  
+                    atomic_superpixels = atomic_superpixels.tolist()
+                elif isinstance(atomic_superpixels,list):
+                    pass
+                else:
+                    atomic_superpixels = [atomic_superpixels]
+
+                print atomic_superpixels
+                out_array.append( HierarchicalRegion(atomic_superpixels,
+                                       float(d['scale']), recusive_build_regions(d['children']) ) )
+                
+            return out_array
+        
+        
+        regions = recusive_build_regions(other_info)
+        
+        print regions
+    
+        return HierarchicalRegionMap(atomic_region_map,regions)
     
     def get_scales(self):
         return self._scales_sorted

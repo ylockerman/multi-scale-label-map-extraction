@@ -79,7 +79,9 @@ cl_scan = opencl_tools.cl_scan
 import numpy as np
 import numpy.ma as ma
 
-from skimage import io, color
+import skimage.io
+import skimage.color
+import diffution_system.io
 
 
 
@@ -299,34 +301,12 @@ def prase_arguments():
 
 
 def to_color_space(image):
-    return color.rgb2lab(image)
+    return skimage.color.rgb2lab(image)
 
 def from_color_space(image):
-    return color.lab2rgb(image.astype(np.float64))
+    return skimage.color.lab2rgb(image.astype(np.float64))
         
-def output_RLE(image):
-    out = [] 
 
-    for line in xrange(image.shape[0]):
-        place = 1
-        run_lenght = 1
-        value = image[line,0]
-        
-        while place < image.shape[1]:
-            if value != image[line,place]:
-                out.append( np.array( [run_lenght,value] ) )
-                run_lenght = 1
-                value = image[line,place]
-            else:
-                run_lenght += 1
-                
-            place += 1
-        
-        #output the final run
-        out.append( np.array( [run_lenght,value] ) )
-    out = np.vstack(out)
-    return out
-    
     
 if __name__ == '__main__':    
     multiprocessing.freeze_support()
@@ -416,7 +396,7 @@ if __name__ == '__main__':
     elif getattr(sys, 'frozen', False):
         del sys.frozen
         
-    image = io.imread(file_name)/255.0
+    image = skimage.io.imread(file_name)/255.0
     if len(image.shape) == 2:
         image = np.concatenate((image[:,:,None],image[:,:,None],image[:,:,None]),axis=2)
     if image.shape[2] > 3:
@@ -469,7 +449,7 @@ if __name__ == '__main__':
     if args.clustering_algorithum.lower() == 'none':
         scipy.io.savemat(   save_file_name, 
                             {'image_shape' : image.shape,
-                             'atomic_SLIC_rle' : output_RLE(SLIC_raw),
+                             'atomic_SLIC_rle' : diffution_system.io.output_RLE(SLIC_raw),
                              'HSLIC' : HSLIC_raw,
                             }, 
                             appendmat = False,
@@ -613,7 +593,7 @@ if __name__ == '__main__':
     
     scipy.io.savemat(   save_file_name, 
                         {'image_shape' : image.shape,
-                         'atomic_SLIC_rle' : output_RLE(SLIC_raw),
+                         'atomic_SLIC_rle' : diffution_system.io.output_RLE(SLIC_raw),
                          'HSLIC' : HSLIC_raw,
                          'texture_lists' : raw_texture_list,
                          'texture_tree' : texture_tree_raw,
