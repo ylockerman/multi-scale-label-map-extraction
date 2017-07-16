@@ -355,12 +355,14 @@ if __name__ == '__main__':
     if (args.output_features and 
             constants['feature_space']['feature_space_name']  == 'gabor_filters'):
             print("Cannot output all features for the 'gabor_filters' feature space.");
-            sys.exit(4);        
-    #From http://stackoverflow.com/questions/3579568/choosing-a-file-in-python-simple-gui
-    from Tkinter import Tk
-    from tkFileDialog import askopenfilename, asksaveasfilename
+            sys.exit(4);       
     
-    Tk().withdraw()
+    #From http://stackoverflow.com/questions/3579568/choosing-a-file-in-python-simple-gui
+    if args.input_image is None or args.output_file is None:
+         from Tkinter import Tk
+         from tkFileDialog import askopenfilename, asksaveasfilename
+    
+         Tk().withdraw()
     
     #if constants['knn_graph_to_diffution']['smothing_factor'] != 1:
     #    if args.input_image is None or args.output_file is None: #If their will be user input, show it as a message
