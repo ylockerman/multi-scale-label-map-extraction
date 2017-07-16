@@ -802,7 +802,7 @@ _combination_calulator = """
 
 
 def calulate_multiscale(image,lowest_level_cluster,
-                        highest_scale,m,sigma,ctx = None):
+                        highest_scale,m,sigma,min_cluster_count=None,ctx = None):
     if ctx is None:
         ctx = opencl_tools.get_a_context()
     devices = ctx.get_info(cl.context_info.DEVICES)
@@ -1083,7 +1083,8 @@ def calulate_multiscale(image,lowest_level_cluster,
     #image_table[S_org] = image
     
     living_clusters = total_clusters
-    while(S_current < highest_scale and living_clusters > 1):
+    target_living_clusters = min_cluster_count if min_cluster_count else 1
+    while(S_current < highest_scale and living_clusters > target_living_clusters):
         blure_filter(image_gpu,image_gpu_buffer)
         #I don't know why this is needed but it seems to fix issues on Nvidia gpus
         cl.enqueue_barrier(queue).wait();
@@ -1252,7 +1253,7 @@ def pixal_table_to_tree(pixal_table,number_of_base_sp):
     
 def HierarchicalSLIC(image,base_tile_size,max_tile_size=None,m_base=20,
                      m_scale=0,sigma=3,total_runs = 1,max_itters=1000,
-                                                     min_cluster_size=32):
+                                  min_cluster_size=32,min_cluster_count=None):
     """
         A Hierarchical SLIC mapping
     """
@@ -1266,7 +1267,8 @@ def HierarchicalSLIC(image,base_tile_size,max_tile_size=None,m_base=20,
     
     multiscale_table = calulate_multiscale(image,
                                            base_slic.get_indicator_array(),
-                                           max_tile_size,m_scale,sigma)
+                                           max_tile_size,m_scale,sigma,
+                                           min_cluster_count=min_cluster_count)
                                     
     
     root_table = pixal_table_to_tree(multiscale_table,len(base_slic))

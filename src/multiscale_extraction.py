@@ -99,7 +99,8 @@ constants = {
                           'total_runs' : 10,
                           'max_itters' : 1000,
                           'min_cluster_size': 25,
-                          'sigma' : 3
+                          'sigma' : 3,
+                          'min_cluster_count' : None
                          },             
     'knn_graph_to_diffution' : {
                             'smothing_factor' : "intrinsic dimensionality",
@@ -202,7 +203,7 @@ def prase_arguments():
     intermediate_levels.add_argument('--auto-scale', action='store_true',
                                         help="Automaticly select scales",default=True)                                                    
                                         
-    hierarchical_SLIC_args = parser.add_argument_group('SLIC Multiscale',"Parameters for the multiscale SLIC algorithm")
+    hierarchical_SLIC_args = parser.add_argument_group('Multiscale SLIC',"Parameters for the multiscale SLIC algorithm")
     hierarchical_SLIC_args.add_argument('--m_base',type=float,
                                         help="The m value to use for the initial SLIC",
                                         default=constants['hierarchical_SLIC']['m_base'])
@@ -221,7 +222,10 @@ def prase_arguments():
     hierarchical_SLIC_args.add_argument('--sigma',type=float,
                                         help="The smoothing parameter to use for each stop of the multiscale SLIC. Smaller values will produce more acurite results, but will be slower",
                                         default=constants['hierarchical_SLIC']['sigma']) 
-                                         
+    hierarchical_SLIC_args.add_argument('--min_cluster_count',type=int,
+                                        help="The minimum number of clusters at the top of the hierarchy. If that number of clusters is reached or surpassed, the multiscale algorithm will stop early. Note that this is just a stopping condition, and not a guarantee. Depending on the number of clusters removed on the final iteration, fewer clusters can be returned.",
+                                        default=constants['hierarchical_SLIC']['min_cluster_count']) 
+                 
     
     knn_graph_to_diffution_args = parser.add_argument_group('KNN graph',"Parameters for the knn graph and diffusion matrix")
     knn_graph_to_diffution_args.add_argument('--smothing_factor',
@@ -324,6 +328,7 @@ if __name__ == '__main__':
     constants['hierarchical_SLIC']['max_itters']        = args.SLIC_max_itters
     constants['hierarchical_SLIC']['min_cluster_size']  = args.min_cluster_size    
     constants['hierarchical_SLIC']['sigma']             = args.sigma
+    constants['hierarchical_SLIC']['min_cluster_count'] = args.min_cluster_count
     
     constants['knn_graph_to_diffution']['smothing_factor'] = args.smothing_factor
     constants['knn_graph_to_diffution']['norm_type']       = args.norm_type  
