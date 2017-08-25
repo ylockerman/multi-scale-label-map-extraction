@@ -806,7 +806,6 @@ class HierarchicalRegionMap(CompoundRegionMap):
                 else:
                     atomic_superpixels = [atomic_superpixels]
 
-                print atomic_superpixels
                 out_array.append( HierarchicalRegion(atomic_superpixels,
                                        float(d['scale']), recusive_build_regions(d['children']) ) )
                 
@@ -815,9 +814,10 @@ class HierarchicalRegionMap(CompoundRegionMap):
         
         regions = recusive_build_regions(other_info)
         
-        print regions
-    
         return HierarchicalRegionMap(atomic_region_map,regions)
+    
+    def get_scale(self,key):
+        return key.scale
     
     def get_scales(self):
         return self._scales_sorted
